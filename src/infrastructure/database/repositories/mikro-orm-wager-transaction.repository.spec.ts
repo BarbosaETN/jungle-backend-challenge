@@ -6,6 +6,7 @@ import mikroOrmConfig from '../mikro-orm.config';
 import { WagerTransactionEntity } from '../entities/wager-transaction.entity';
 import { WalletEntity } from '../entities/wallet.entity';
 import { MikroOrmWagerTransactionRepository } from './mikro-orm-wager-transaction.repository';
+import { LedgerEntryEntity } from '../entities/ledger-entry.entity';
 
 describe('MikroOrmWagerTransactionRepository', () => {
   let orm: MikroORM;
@@ -26,6 +27,7 @@ describe('MikroOrmWagerTransactionRepository', () => {
   beforeEach(async () => {
     const em = orm.em.fork();
 
+    await em.nativeDelete(LedgerEntryEntity, {});
     await em.nativeDelete(WagerTransactionEntity, {});
     await em.nativeDelete(WalletEntity, {});
 
