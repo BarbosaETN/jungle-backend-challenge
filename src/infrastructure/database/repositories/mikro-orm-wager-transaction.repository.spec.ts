@@ -15,9 +15,7 @@ describe('MikroOrmWagerTransactionRepository', () => {
 
   beforeAll(async () => {
     orm = await MikroORM.init(mikroOrmConfig);
-    repository = new MikroOrmWagerTransactionRepository(
-      orm.em.fork(),
-    );
+    repository = new MikroOrmWagerTransactionRepository(orm.em.fork());
   });
 
   afterAll(async () => {
@@ -58,14 +56,10 @@ describe('MikroOrmWagerTransactionRepository', () => {
 
     await repository.save(transaction);
 
-    const found = await repository.findById(
-      transaction.transactionId,
-    );
+    const found = await repository.findById(transaction.transactionId);
 
     expect(found).not.toBeNull();
-    expect(found?.transactionId).toBe(
-      transaction.transactionId,
-    );
+    expect(found?.transactionId).toBe(transaction.transactionId);
     expect(found?.provider).toBe('provider-1');
     expect(found?.externalId).toBe('external-1');
     expect(found?.idempotency).toBe('idempotency-1');
@@ -90,19 +84,14 @@ describe('MikroOrmWagerTransactionRepository', () => {
 
     await repository.save(transaction);
 
-    const found =
-      await repository.findByIdempotencyKey('idempotency-2');
+    const found = await repository.findByIdempotencyKey('idempotency-2');
 
     expect(found).not.toBeNull();
-    expect(found?.transactionId).toBe(
-      transaction.transactionId,
-    );
+    expect(found?.transactionId).toBe(transaction.transactionId);
   });
 
   it('should return null when transaction does not exist', async () => {
-    const found = await repository.findById(
-      crypto.randomUUID(),
-    );
+    const found = await repository.findById(crypto.randomUUID());
 
     expect(found).toBeNull();
   });
@@ -123,10 +112,41 @@ describe('MikroOrmWagerTransactionRepository', () => {
 
     await repository.save(transaction);
 
-    const found =
-      await repository.findById(transaction.transactionId);
+    const found = await repository.findById(transaction.transactionId);
 
     expect(found).not.toBeNull();
     expect(found?.value.amount).toBe('50.00');
+  });
+
+  it('should reject duplicate idempotency keys', async () => {
+    const firstTransaction = WagerTransaction.create({
+      providerId: 'provider-1',
+      externalTransactionId: 'external-1',
+      idempotencyKey: 'same-key',
+      payloadHash: 'a'.repeat(64),
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'round-1',
+      gameId: 'game-1',
+      amount: Money.from('10.00', 'BRL'),
+      kind: 'BET',
+    });
+
+    const secondTransaction = WagerTransaction.create({
+      providerId: 'provider-1',
+      externalTransactionId: 'external-2',
+      idempotencyKey: 'same-key',
+      payloadHash: 'b'.repeat(64),
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'round-2',
+      gameId: 'game-2',
+      amount: Money.from('20.00', 'BRL'),
+      kind: 'BET',
+    });
+
+    await repository.save(firstTransaction);
+
+    await expect(repository.save(secondTransaction)).rejects.toThrow();
   });
 });
