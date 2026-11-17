@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { defineConfig } from '@mikro-orm/postgresql';
+import { Migrator } from '@mikro-orm/migrations';
 
 export default defineConfig({
   host: process.env.DATABASE_HOST,
@@ -10,10 +11,13 @@ export default defineConfig({
 
   entities: ['./dist/**/*.entity.js'],
   entitiesTs: ['./src/**/*.entity.ts'],
+  
 
   discovery: {
     warnWhenNoEntities: false,
   },
+
+  extensions: [Migrator],
 
   migrations: {
     path: './dist/infrastructure/database/migrations',
