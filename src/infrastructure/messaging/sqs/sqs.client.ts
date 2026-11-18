@@ -1,11 +1,18 @@
 import {
+  DeleteMessageCommand,
+  ReceiveMessageCommand,
   SQSClient,
   SendMessageCommand,
 } from '@aws-sdk/client-sqs';
 
+import {
+  MessageConsumer,
+  ReceivedMessage,
+} from '../../../application/messaging/message-consumer';
+
 import { MessagePublisher } from '../../../application/messaging/message-publisher';
 
-export class SqsClient implements MessagePublisher {
+export class SqsClient implements MessagePublisher, MessageConsumer {
   private readonly client: SQSClient;
 
   constructor() {
@@ -19,14 +26,48 @@ export class SqsClient implements MessagePublisher {
     });
   }
 
-  async publish(
-    queueUrl: string,
-    message: string,
-  ): Promise<void> {
+  async publish(queueUrl: string, message: string): Promise<void> {
     await this.client.send(
       new SendMessageCommand({
         QueueUrl: queueUrl,
         MessageBody: message,
+      }),
+    );
+  }
+
+  async receive(
+    queueUrl: string,
+    maxMessages: number,
+  ): Promise<ReceivedMessage[]> {
+    const response = await this.client.send(
+      new ReceiveMessageCommand({
+        QueueUrl: queueUrl,
+        MaxNumberOfMessages: maxMessages,
+        WaitTimeSeconds: 10,
+      }),
+    );
+
+    return (response.Messages ?? [])
+      .filter(
+        (
+          message,
+        ): message is typeof message & {
+          MessageId: string;
+          ReceiptHandle: string;
+        } => Boolean(message.MessageId && message.ReceiptHandle),
+      )
+      .map((message) => ({
+        messageId: message.MessageId,
+        receiptHandle: message.ReceiptHandle,
+        body: message.Body ?? '',
+      }));
+  }
+
+  async delete(queueUrl: string, receiptHandle: string): Promise<void> {
+    await this.client.send(
+      new DeleteMessageCommand({
+        QueueUrl: queueUrl,
+        ReceiptHandle: receiptHandle,
       }),
     );
   }

@@ -1,0 +1,1 @@
+export const SQS_CONSUMER_NAME = Symbol('SQS_CONSUMER_NAME');

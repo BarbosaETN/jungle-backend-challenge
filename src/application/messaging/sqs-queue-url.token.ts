@@ -1,0 +1,1 @@
+export const SQS_QUEUE_URL = Symbol('SQS_QUEUE_URL');
