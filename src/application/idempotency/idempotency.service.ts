@@ -9,11 +9,10 @@ export class IdempotencyService {
   async resolve(
     idempotencyKey: string,
     payloadHash: string,
+    repository: WagerTransactionRepository = this.wagerTransactionRepository,
   ): Promise<IdempotencyResolution> {
     const transaction =
-      await this.wagerTransactionRepository.findByIdempotencyKey(
-        idempotencyKey,
-      );
+      await repository.findByIdempotencyKey(idempotencyKey);
 
     if (!transaction) {
       return {
