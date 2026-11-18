@@ -48,7 +48,7 @@ describe('SqsConsumerWorker', () => {
     expect(inboxService.process).toHaveBeenCalledWith(
       'message-1',
       'wallet-consumer',
-      '{"eventType":"TEST_EVENT"}',
+      'b354557f092d2eab72634f5339578853486488d41d54bd88a0462cd87df86752',
     );
 
     expect(inboxService.markAsProcessed).toHaveBeenCalledWith(

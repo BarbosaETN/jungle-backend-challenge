@@ -19,9 +19,7 @@ describe('InboxService integration', () => {
     await em.nativeDelete(InboxMessageEntity, {});
     em.clear();
 
-    const repository = new MikroOrmInboxMessageRepository(
-      orm.em.fork(),
-    );
+    const repository = new MikroOrmInboxMessageRepository(orm.em.fork());
 
     service = new InboxService(repository);
   });
@@ -52,17 +50,25 @@ describe('InboxService integration', () => {
   });
 
   it('should return DUPLICATE for an already persisted message', async () => {
+    const payloadHash = 'a'.repeat(64);
+
     const firstResult = await service.process(
-      'integration-message-2',
-      'wallet-worker',
-      'b'.repeat(64),
+      'message-1',
+      'wallet-consumer',
+      payloadHash,
     );
 
+    expect(firstResult).toBe('NEW');
+
+    await service.markAsProcessed('message-1', 'wallet-consumer');
+
     const secondResult = await service.process(
-      'integration-message-2',
-      'wallet-worker',
-      'b'.repeat(64),
+      'message-1',
+      'wallet-consumer',
+      payloadHash,
     );
+
+    expect(secondResult).toBe('DUPLICATE');
 
     expect(firstResult).toBe('NEW');
     expect(secondResult).toBe('DUPLICATE');

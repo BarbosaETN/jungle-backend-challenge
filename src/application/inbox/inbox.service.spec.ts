@@ -9,16 +9,11 @@ class FakeInboxMessageRepository implements InboxMessageRepository {
     messageId: string,
     consumerName: string,
   ): Promise<InboxMessage | null> {
-    return (
-      this.messages.get(`${messageId}:${consumerName}`) ?? null
-    );
+    return this.messages.get(`${messageId}:${consumerName}`) ?? null;
   }
 
   async save(message: InboxMessage): Promise<void> {
-    this.messages.set(
-      `${message.id}:${message.consumer}`,
-      message,
-    );
+    this.messages.set(`${message.id}:${message.consumer}`, message);
   }
 }
 
@@ -40,26 +35,29 @@ describe('InboxService', () => {
 
     expect(result).toBe('NEW');
 
-    const saved = await repository.findById(
-      'message-1',
-      'wallet-worker',
-    );
+    const saved = await repository.findById('message-1', 'wallet-worker');
 
     expect(saved).not.toBeNull();
     expect(saved?.id).toBe('message-1');
   });
 
   it('should return DUPLICATE when the message already exists', async () => {
-    await service.process(
+    const payloadHash = 'a'.repeat(64);
+
+    const firstResult = await service.process(
       'message-1',
-      'wallet-worker',
-      'a'.repeat(64),
+      'wallet-consumer',
+      payloadHash,
     );
+
+    expect(firstResult).toBe('NEW');
+
+    await service.markAsProcessed('message-1', 'wallet-consumer');
 
     const result = await service.process(
       'message-1',
-      'wallet-worker',
-      'a'.repeat(64),
+      'wallet-consumer',
+      payloadHash,
     );
 
     expect(result).toBe('DUPLICATE');
