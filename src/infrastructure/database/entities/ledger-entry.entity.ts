@@ -1,4 +1,5 @@
 import {
+  Check,
   Entity,
   Enum,
   Index,
@@ -14,7 +15,6 @@ import type { LedgerEntryDirection } from '../../../domain/ledger/ledger-entry-d
 import { WalletEntity } from './wallet.entity';
 import { WagerTransactionEntity } from './wager-transaction.entity';
 
-@Entity({ tableName: 'wallet_ledger_entries' })
 @Unique({
   name: 'ledger_transaction_wallet_unique',
   properties: ['transaction', 'wallet'],
@@ -23,6 +23,28 @@ import { WagerTransactionEntity } from './wager-transaction.entity';
   name: 'ledger_wallet_created_idx',
   properties: ['wallet', 'createdAt', 'id'],
 })
+@Check({
+  name: 'wallet_ledger_entries_amount_positive',
+  expression: 'amount > 0',
+})
+@Check({
+  name: 'wallet_ledger_entries_balance_after_non_negative',
+  expression: 'balance_after >= 0',
+})
+@Check({
+  name: 'wallet_ledger_entries_balance_before_non_negative',
+  expression: 'balance_before >= 0',
+})
+@Check({
+  name: 'wallet_ledger_entries_balance_transition',
+  expression:
+    "((direction = 'DEBIT') AND (balance_after = balance_before - amount)) OR ((direction = 'CREDIT') AND (balance_after = balance_before + amount))",
+})
+@Check({
+  name: 'wallet_ledger_entries_currency_format',
+  expression: "currency ~ '^[A-Z]{3}$'",
+})
+@Entity({ tableName: 'wallet_ledger_entries' })
 export class LedgerEntryEntity {
   @PrimaryKey({ type: 'uuid' })
   id!: string;

@@ -1,4 +1,5 @@
 import {
+  Check,
   Entity,
   PrimaryKey,
   Property,
@@ -9,6 +10,18 @@ import type { Currency } from '../../../domain/money/currency';
 @Unique({
   name: 'wallet_player_currency_unique',
   properties: ['playerId', 'currency'],
+})
+@Check({
+  name: 'wallet_balance_non_negative',
+  expression: 'balance >= 0',
+})
+@Check({
+  name: 'wallet_version_positive',
+  expression: 'version >= 1',
+})
+@Check({
+  name: 'wallet_currency_format',
+  expression: "currency ~ '^[A-Z]{3}$'",
 })
 @Entity({ tableName: 'wallets' })
 export class WalletEntity {

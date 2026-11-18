@@ -76,7 +76,7 @@ describe('Idempotency flow integration', () => {
       gameId: request.payload.gameId,
       amount: Money.from(
         request.payload.amount,
-        request.payload.currency,
+        request.payload.currency as 'BRL' | 'USD' | 'EUR',
       ),
       kind: request.payload.kind as 'BET',
     });

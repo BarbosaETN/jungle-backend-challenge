@@ -1,4 +1,5 @@
 import {
+  Check,
   Entity,
   Enum,
   Index,
@@ -13,7 +14,6 @@ import type { WagerTransactionKind } from '../../../domain/wager-transaction/wag
 import type { WagerTransactionStatus } from '../../../domain/wager-transaction/wager-transaction-status';
 import { WalletEntity } from './wallet.entity';
 
-@Entity({ tableName: 'wager_transactions' })
 @Unique({
   name: 'wager_transaction_provider_external_unique',
   properties: ['providerId', 'externalTransactionId'],
@@ -36,11 +36,21 @@ import { WalletEntity } from './wallet.entity';
 })
 @Index({
   name: 'wager_transaction_provider_reference_idx',
-  properties: [
-    'providerId',
-    'referenceExternalTransactionId',
-  ],
+  properties: ['providerId', 'referenceExternalTransactionId'],
 })
+@Check({
+  name: 'wager_transactions_amount_positive',
+  expression: 'amount > 0',
+})
+@Check({
+  name: 'wager_transactions_currency_format',
+  expression: "currency ~ '^[A-Z]{3}$'",
+})
+@Check({
+  name: 'wager_transactions_payload_hash_format',
+  expression: 'length(payload_hash) = 64',
+})
+@Entity({ tableName: 'wager_transactions' })
 export class WagerTransactionEntity {
   @PrimaryKey({ type: 'uuid' })
   id!: string;
@@ -76,14 +86,7 @@ export class WagerTransactionEntity {
   currency!: Currency;
 
   @Enum({
-    items: [
-      'OPENING',
-      'BET',
-      'WIN',
-      'LOSS',
-      'REFUND',
-      'ROLLBACK',
-    ],
+    items: ['OPENING', 'BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK'],
   })
   kind!: WagerTransactionKind;
 
@@ -96,13 +99,7 @@ export class WagerTransactionEntity {
   referenceTransaction?: WagerTransactionEntity;
 
   @Enum({
-    items: [
-      'PENDING',
-      'PENDING_REFERENCE',
-      'PROCESSED',
-      'REJECTED',
-      'FAILED',
-    ],
+    items: ['PENDING', 'PENDING_REFERENCE', 'PROCESSED', 'REJECTED', 'FAILED'],
   })
   status!: WagerTransactionStatus;
 

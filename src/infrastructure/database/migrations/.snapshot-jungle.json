@@ -5,6 +5,114 @@
   ],
   "tables": [
     {
+      "name": "inbox_messages",
+      "schema": "public",
+      "columns": {
+        "consumer_name": {
+          "name": "consumer_name",
+          "type": "varchar(100)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": 100,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "varchar(255)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": 255,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
+        "payload_hash": {
+          "name": "payload_hash",
+          "type": "varchar(64)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 64,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "string"
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        }
+      },
+      "indexes": [
+        {
+          "columnNames": [
+            "message_id",
+            "consumer_name"
+          ],
+          "composite": true,
+          "constraint": true,
+          "keyName": "inbox_messages_pkey",
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "triggers": [],
+      "foreignKeys": {},
+      "comment": null
+    },
+    {
       "name": "wager_transactions",
       "schema": "public",
       "columns": {
@@ -406,14 +514,12 @@
         {
           "name": "wager_transactions_amount_positive",
           "expression": "amount > 0",
-          "definition": "CHECK ((amount > (0)::numeric))",
-          "columnName": "amount"
+          "definition": "check (amount > 0)"
         },
         {
           "name": "wager_transactions_currency_format",
-          "expression": "currency ~ '^[A-Z]{3}$'::text",
-          "definition": "CHECK (((currency)::text ~ '^[A-Z]{3}$'::text))",
-          "columnName": "currency"
+          "expression": "currency ~ '^[A-Z]{3}$'",
+          "definition": "check (currency ~ '^[A-Z]{3}$')"
         },
         {
           "name": "wager_transactions_kind_check",
@@ -424,8 +530,7 @@
         {
           "name": "wager_transactions_payload_hash_format",
           "expression": "length(payload_hash) = 64",
-          "definition": "CHECK ((length((payload_hash)::text) = 64))",
-          "columnName": "payload_hash"
+          "definition": "check (length(payload_hash) = 64)"
         },
         {
           "name": "wager_transactions_status_check",
@@ -662,32 +767,27 @@
         {
           "name": "wallet_ledger_entries_amount_positive",
           "expression": "amount > 0",
-          "definition": "CHECK ((amount > (0)::numeric))",
-          "columnName": "amount"
+          "definition": "check (amount > 0)"
         },
         {
           "name": "wallet_ledger_entries_balance_after_non_negative",
           "expression": "balance_after >= 0",
-          "definition": "CHECK ((balance_after >= (0)::numeric))",
-          "columnName": "balance_after"
+          "definition": "check (balance_after >= 0)"
         },
         {
           "name": "wallet_ledger_entries_balance_before_non_negative",
           "expression": "balance_before >= 0",
-          "definition": "CHECK ((balance_before >= (0)::numeric))",
-          "columnName": "balance_before"
+          "definition": "check (balance_before >= 0)"
         },
         {
           "name": "wallet_ledger_entries_balance_transition",
-          "expression": "((direction = 'DEBIT'::text) AND (balance_after = (balance_before - amount))) OR ((direction = 'CREDIT'::text) AND (balance_after = (balance_before + amount)))",
-          "definition": "CHECK ((((direction = 'DEBIT'::text) AND (balance_after = (balance_before - amount))) OR ((direction = 'CREDIT'::text) AND (balance_after = (balance_before + amount)))))",
-          "columnName": "amount"
+          "expression": "((direction = 'DEBIT') AND (balance_after = balance_before - amount)) OR ((direction = 'CREDIT') AND (balance_after = balance_before + amount))",
+          "definition": "check (((direction = 'DEBIT') AND (balance_after = balance_before - amount)) OR ((direction = 'CREDIT') AND (balance_after = balance_before + amount)))"
         },
         {
           "name": "wallet_ledger_entries_currency_format",
-          "expression": "currency ~ '^[A-Z]{3}$'::text",
-          "definition": "CHECK (((currency)::text ~ '^[A-Z]{3}$'::text))",
-          "columnName": "currency"
+          "expression": "currency ~ '^[A-Z]{3}$'",
+          "definition": "check (currency ~ '^[A-Z]{3}$')"
         },
         {
           "name": "wallet_ledger_entries_direction_check",
@@ -874,20 +974,17 @@
         {
           "name": "wallet_balance_non_negative",
           "expression": "balance >= 0",
-          "definition": "CHECK ((balance >= (0)::numeric))",
-          "columnName": "balance"
+          "definition": "check (balance >= 0)"
         },
         {
           "name": "wallet_currency_format",
-          "expression": "currency ~ '^[A-Z]{3}$'::text",
-          "definition": "CHECK (((currency)::text ~ '^[A-Z]{3}$'::text))",
-          "columnName": "currency"
+          "expression": "currency ~ '^[A-Z]{3}$'",
+          "definition": "check (currency ~ '^[A-Z]{3}$')"
         },
         {
           "name": "wallet_version_positive",
           "expression": "version >= 1",
-          "definition": "CHECK ((version >= 1))",
-          "columnName": "version"
+          "definition": "check (version >= 1)"
         }
       ],
       "triggers": [],
