@@ -1,0 +1,33 @@
+import {
+  SQSClient,
+  SendMessageCommand,
+} from '@aws-sdk/client-sqs';
+
+import { MessagePublisher } from '../../../application/messaging/message-publisher';
+
+export class SqsClient implements MessagePublisher {
+  private readonly client: SQSClient;
+
+  constructor() {
+    this.client = new SQSClient({
+      region: process.env.AWS_REGION ?? 'us-east-1',
+      endpoint: process.env.AWS_SQS_ENDPOINT ?? 'http://localhost:4566',
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'test',
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test',
+      },
+    });
+  }
+
+  async publish(
+    queueUrl: string,
+    message: string,
+  ): Promise<void> {
+    await this.client.send(
+      new SendMessageCommand({
+        QueueUrl: queueUrl,
+        MessageBody: message,
+      }),
+    );
+  }
+}

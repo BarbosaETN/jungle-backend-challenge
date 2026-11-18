@@ -25,6 +25,7 @@
     "tsLoader": "tsx"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.1171.0",
     "@mikro-orm/core": "^7.2.10",
     "@mikro-orm/decorators": "^7.2.10",
     "@mikro-orm/migrations": "^7.2.10",
