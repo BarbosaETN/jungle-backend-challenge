@@ -143,6 +143,65 @@ describe('SqsConsumerWorker', () => {
     expect(messageConsumer.delete).not.toHaveBeenCalled();
   });
 
+  it('should process the message successfully after a previous failure', async () => {
+    const message: ReceivedMessage = {
+      messageId: 'message-recovery',
+      receiptHandle: 'receipt-recovery',
+      body: '{"eventType":"TEST_EVENT"}',
+    };
+
+    const messageConsumer = {
+      receive: jest
+        .fn()
+        .mockResolvedValueOnce([message])
+        .mockResolvedValueOnce([message]),
+      delete: jest.fn().mockResolvedValue(undefined),
+    } as unknown as MessageConsumer;
+
+    const inboxService = {
+      process: jest.fn().mockResolvedValue('NEW'),
+      markAsProcessed: jest.fn().mockResolvedValue(undefined),
+    } as unknown as InboxService;
+
+    const messageHandler = {
+      handle: jest
+        .fn()
+        .mockRejectedValueOnce(new Error('Processing failed'))
+        .mockResolvedValueOnce(undefined),
+    } as unknown as MessageHandler;
+
+    const worker = new SqsConsumerWorker(
+      messageConsumer,
+      inboxService,
+      messageHandler,
+      'http://queue.test',
+      'wallet-consumer',
+    );
+
+    // Primeira entrega: processamento falha.
+    await expect(worker.run()).rejects.toThrow('Processing failed');
+
+    expect(inboxService.markAsProcessed).not.toHaveBeenCalled();
+    expect(messageConsumer.delete).not.toHaveBeenCalled();
+
+    // Segunda entrega: processamento funciona.
+    await worker.run();
+
+    expect(messageHandler.handle).toHaveBeenCalledTimes(2);
+
+    expect(inboxService.markAsProcessed).toHaveBeenCalledTimes(1);
+    expect(inboxService.markAsProcessed).toHaveBeenCalledWith(
+      'message-recovery',
+      'wallet-consumer',
+    );
+
+    expect(messageConsumer.delete).toHaveBeenCalledTimes(1);
+    expect(messageConsumer.delete).toHaveBeenCalledWith(
+      'http://queue.test',
+      'receipt-recovery',
+    );
+  });
+
   it('should process all received messages', async () => {
     const messages: ReceivedMessage[] = [
       {

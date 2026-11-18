@@ -90,6 +90,60 @@ describe('OutboxPublisherWorker', () => {
     expect(registerAttempt).toHaveBeenCalledWith('message-2', expect.any(Date));
   });
 
+  it('should retry a failed publication and mark the message as published after recovery', async () => {
+    const message = OutboxMessage.create(
+      'message-recovery',
+      'aggregate-recovery',
+      'TEST_EVENT',
+      {
+        amount: '30.00',
+      },
+    );
+
+    const findPending = jest
+      .fn()
+      .mockResolvedValueOnce([message])
+      .mockResolvedValueOnce([message]);
+
+    const markAsPublished = jest.fn().mockResolvedValue(undefined);
+    const registerAttempt = jest.fn().mockResolvedValue(undefined);
+
+    const outboxService = {
+      findPending,
+      markAsPublished,
+      registerAttempt,
+    } as unknown as OutboxService;
+
+    const publish = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('SQS unavailable'))
+      .mockResolvedValueOnce(undefined);
+
+    const messagePublisher = {
+      publish,
+    } as unknown as MessagePublisher;
+
+    const worker = new OutboxPublisherWorker(
+      outboxService,
+      messagePublisher,
+      'http://queue.test',
+    );
+
+    // Primeira tentativa: SQS está indisponível.
+    await worker.run();
+
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(markAsPublished).not.toHaveBeenCalled();
+    expect(registerAttempt).toHaveBeenCalledTimes(1);
+
+    // Segunda tentativa: SQS voltou.
+    await worker.run();
+
+    expect(publish).toHaveBeenCalledTimes(2);
+    expect(markAsPublished).toHaveBeenCalledTimes(1);
+    expect(markAsPublished).toHaveBeenCalledWith('message-recovery');
+  });
+
   it('should respect the processing limit', async () => {
     const messages = Array.from({ length: 3 }, (_, index) =>
       OutboxMessage.create(
