@@ -4,6 +4,7 @@ import { WalletRepository } from '../../../domain/wallet/wallet.repository';
 import { WalletEntity } from '../entities/wallet.entity';
 import { WalletMapper } from '../mappers/wallet.mapper';
 import type { Currency } from '../../../domain/money/currency';
+import { WalletConcurrencyError } from '../../../domain/wallet/errors/wallet-concurrency.error';
 
 export class MikroOrmWalletRepository implements WalletRepository {
   constructor(private readonly em: EntityManager) {}
@@ -41,18 +42,33 @@ export class MikroOrmWalletRepository implements WalletRepository {
 
     if (!existingEntity) {
       const entity = WalletMapper.toEntity(wallet);
-
       this.em.persist(entity);
       await this.em.flush();
-
       return;
     }
 
-    existingEntity.playerId = wallet.ownerId;
-    existingEntity.balance = wallet.currentBalance.amount;
-    existingEntity.currency = wallet.currentBalance.currencyCode;
-    existingEntity.version = wallet.currentVersion;
+    const expectedVersion = wallet.currentVersion;
 
-    await this.em.flush();
+    const affectedRows = await this.em.nativeUpdate(
+      WalletEntity,
+      {
+        id: wallet.walletId,
+        version: expectedVersion,
+      },
+      {
+        playerId: wallet.ownerId,
+        balance: wallet.currentBalance.amount,
+        currency: wallet.currentBalance.currencyCode,
+        version: expectedVersion + 1,
+      },
+    );
+
+    if (affectedRows === 0) {
+      this.em.clear();
+
+      throw new WalletConcurrencyError(wallet.walletId, expectedVersion);
+    }
+
+    this.em.clear();
   }
 }

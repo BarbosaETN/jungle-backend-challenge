@@ -6,6 +6,7 @@ import { WalletEntity } from '../entities/wallet.entity';
 import { MikroOrmWalletRepository } from './mikro-orm-wallet.repository';
 import { LedgerEntryEntity } from '../entities/ledger-entry.entity';
 import { WagerTransactionEntity } from '../entities/wager-transaction.entity';
+import { WalletConcurrencyError } from '../../../domain/wallet/errors/wallet-concurrency.error';
 
 describe('MikroOrmWalletRepository', () => {
   let orm: MikroORM;
@@ -79,6 +80,30 @@ describe('MikroOrmWalletRepository', () => {
 
     expect(foundWallet).not.toBeNull();
     expect(foundWallet?.currentBalance.amount).toBe('150.00');
-    expect(foundWallet?.currentVersion).toBe(1);
+    expect(foundWallet?.currentVersion).toBe(2);
+  });
+
+  it('should throw a concurrency error when wallet version is stale', async () => {
+    const wallet = Wallet.create(
+      'player-concurrency',
+      Money.from('100.00', 'BRL'),
+    );
+
+    await repository.save(wallet);
+
+    wallet.credit(Money.from('50.00', 'BRL'));
+
+    await repository.save(wallet);
+
+    const staleWallet = Wallet.restore(
+      wallet.walletId,
+      wallet.ownerId,
+      Money.from('200.00', 'BRL'),
+      1,
+    );
+
+    await expect(repository.save(staleWallet)).rejects.toBeInstanceOf(
+      WalletConcurrencyError,
+    );
   });
 });
