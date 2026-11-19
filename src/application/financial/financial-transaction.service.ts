@@ -53,7 +53,18 @@ export class FinancialTransactionService {
 
       const balanceBefore = wallet.currentBalance;
 
-      wallet.debit(amount);
+      const direction =
+        request.kind === 'WIN' ||
+        request.kind === 'REFUND' ||
+        request.kind === 'ROLLBACK'
+          ? 'CREDIT'
+          : 'DEBIT';
+
+      if (direction === 'CREDIT') {
+        wallet.credit(amount);
+      } else {
+        wallet.debit(amount);
+      }
 
       const balanceAfter = wallet.currentBalance;
 
@@ -73,7 +84,7 @@ export class FinancialTransactionService {
       const ledgerEntry = LedgerEntry.create({
         walletId: wallet.walletId,
         transactionId: transaction.transactionId,
-        direction: 'DEBIT',
+        direction,
         amount,
         balanceBefore,
         balanceAfter,

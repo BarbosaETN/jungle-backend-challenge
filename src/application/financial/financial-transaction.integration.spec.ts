@@ -568,4 +568,179 @@ describe('FinancialTransaction integration', () => {
 
     expect(ledgerAmounts).toEqual(['30.00', '50.00']);
   });
+
+  it('should process a WIN as a credit', async () => {
+    const wallet = Wallet.create('player-win', Money.from('100.00', 'BRL'));
+
+    await new MikroOrmWalletRepository(orm.em.fork()).save(wallet);
+
+    const financialService = new FinancialTransactionService(
+      new MikroOrmDatabaseTransaction(orm.em.fork()),
+      new IdempotencyService(
+        new MikroOrmWagerTransactionRepository(orm.em.fork()),
+      ),
+      new LoggerService(),
+      correlationIdService,
+    );
+
+    const request: FinancialTransactionRequest = {
+      providerId: 'provider-win',
+      externalTransactionId: 'external-win',
+      idempotencyKey: 'idempotency-win',
+      playerId: 'player-win',
+      walletId: wallet.walletId,
+      roundId: 'round-win',
+      gameId: 'game-win',
+      amount: '50.00',
+      currency: 'BRL',
+      kind: 'WIN',
+    };
+
+    const result = await financialService.create(request, 'w'.repeat(64));
+
+    const finalWallet = await new MikroOrmWalletRepository(
+      orm.em.fork(),
+    ).findById(wallet.walletId);
+
+    expect(finalWallet?.currentBalance.amount).toBe('150.00');
+
+    const ledger = await orm.em.fork().findOne(LedgerEntryEntity, {
+      transaction: result.transaction.transactionId,
+    });
+
+    expect(ledger?.direction).toBe('CREDIT');
+    expect(ledger?.balanceBefore).toBe('100.00');
+    expect(ledger?.balanceAfter).toBe('150.00');
+  });
+
+  it('should process a LOSS as a debit', async () => {
+    const wallet = Wallet.create('player-loss', Money.from('100.00', 'BRL'));
+
+    await new MikroOrmWalletRepository(orm.em.fork()).save(wallet);
+
+    const financialService = new FinancialTransactionService(
+      new MikroOrmDatabaseTransaction(orm.em.fork()),
+      new IdempotencyService(
+        new MikroOrmWagerTransactionRepository(orm.em.fork()),
+      ),
+      new LoggerService(),
+      correlationIdService,
+    );
+
+    const request: FinancialTransactionRequest = {
+      providerId: 'provider-loss',
+      externalTransactionId: 'external-loss',
+      idempotencyKey: 'idempotency-loss',
+      playerId: 'player-loss',
+      walletId: wallet.walletId,
+      roundId: 'round-loss',
+      gameId: 'game-loss',
+      amount: '40.00',
+      currency: 'BRL',
+      kind: 'LOSS',
+    };
+
+    const result = await financialService.create(request, 'l'.repeat(64));
+
+    const finalWallet = await new MikroOrmWalletRepository(
+      orm.em.fork(),
+    ).findById(wallet.walletId);
+
+    expect(finalWallet?.currentBalance.amount).toBe('60.00');
+
+    const ledger = await orm.em.fork().findOne(LedgerEntryEntity, {
+      transaction: result.transaction.transactionId,
+    });
+
+    expect(ledger?.direction).toBe('DEBIT');
+    expect(ledger?.balanceBefore).toBe('100.00');
+    expect(ledger?.balanceAfter).toBe('60.00');
+  });
+
+  it('should process a REFUND as a credit', async () => {
+    const wallet = Wallet.create('player-refund', Money.from('100.00', 'BRL'));
+
+    await new MikroOrmWalletRepository(orm.em.fork()).save(wallet);
+
+    const financialService = new FinancialTransactionService(
+      new MikroOrmDatabaseTransaction(orm.em.fork()),
+      new IdempotencyService(
+        new MikroOrmWagerTransactionRepository(orm.em.fork()),
+      ),
+      new LoggerService(),
+      correlationIdService,
+    );
+
+    const request: FinancialTransactionRequest = {
+      providerId: 'provider-refund',
+      externalTransactionId: 'external-refund',
+      idempotencyKey: 'idempotency-refund',
+      playerId: 'player-refund',
+      walletId: wallet.walletId,
+      roundId: 'round-refund',
+      gameId: 'game-refund',
+      amount: '30.00',
+      currency: 'BRL',
+      kind: 'REFUND',
+    };
+
+    const result = await financialService.create(request, 'r'.repeat(64));
+
+    const finalWallet = await new MikroOrmWalletRepository(
+      orm.em.fork(),
+    ).findById(wallet.walletId);
+
+    expect(finalWallet?.currentBalance.amount).toBe('130.00');
+
+    const ledger = await orm.em.fork().findOne(LedgerEntryEntity, {
+      transaction: result.transaction.transactionId,
+    });
+
+    expect(ledger?.direction).toBe('CREDIT');
+  });
+
+  it('should process a ROLLBACK as a credit', async () => {
+    const wallet = Wallet.create(
+      'player-rollback',
+      Money.from('100.00', 'BRL'),
+    );
+
+    await new MikroOrmWalletRepository(orm.em.fork()).save(wallet);
+
+    const financialService = new FinancialTransactionService(
+      new MikroOrmDatabaseTransaction(orm.em.fork()),
+      new IdempotencyService(
+        new MikroOrmWagerTransactionRepository(orm.em.fork()),
+      ),
+      new LoggerService(),
+      correlationIdService,
+    );
+
+    const request: FinancialTransactionRequest = {
+      providerId: 'provider-rollback',
+      externalTransactionId: 'external-rollback',
+      idempotencyKey: 'idempotency-rollback',
+      playerId: 'player-rollback',
+      walletId: wallet.walletId,
+      roundId: 'round-rollback',
+      gameId: 'game-rollback',
+      amount: '20.00',
+      currency: 'BRL',
+      kind: 'ROLLBACK',
+    };
+
+    const result = await financialService.create(request, 'k'.repeat(64));
+
+    const finalWallet = await new MikroOrmWalletRepository(
+      orm.em.fork(),
+    ).findById(wallet.walletId);
+
+    expect(finalWallet?.currentBalance.amount).toBe('120.00');
+
+    const ledger = await orm.em.fork().findOne(LedgerEntryEntity, {
+      transaction: result.transaction.transactionId,
+    });
+
+    expect(ledger?.direction).toBe('CREDIT');
+  });
 });
