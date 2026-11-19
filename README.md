@@ -1,30 +1,29 @@
-# Jungle Backend Challenge
+# Jungle Gaming Backend Challenge
 
 Backend desenvolvido para o desafio técnico da Jungle Gaming.
 
-O projeto implementa um fluxo de processamento de transações financeiras com foco em consistência, idempotência, concorrência, histórico financeiro e processamento assíncrono.
+O projeto implementa um fluxo de processamento de transações financeiras com foco em **consistência financeira, precisão monetária, idempotência, concorrência, histórico de transações e processamento assíncrono**.
 
 ## Tecnologias
 
-- **Node.js**
-- **TypeScript**
-- **NestJS**
-- **PostgreSQL**
-- **MikroORM**
-- **Amazon SQS**
-- **LocalStack**
-- **Decimal.js**
-- **JWT**
-- **Jest**
-- **Supertest**
-- **Docker Compose**
-- **Bun**
+- Node.js
+- Bun
+- TypeScript
+- NestJS
+- PostgreSQL
+- MikroORM
+- Decimal.js
+- Amazon SQS
+- LocalStack
+- Docker / Docker Compose
+- Jest
+- Supertest
 
 ---
 
-# Arquitetura
+## Arquitetura
 
-O projeto é dividido em três camadas principais:
+A aplicação utiliza uma separação entre domínio, aplicação e infraestrutura.
 
 ```text
 src/
@@ -35,7 +34,7 @@ src/
 
 ### Domain
 
-Contém as regras e conceitos principais do sistema:
+Contém as regras de negócio e os objetos centrais do sistema:
 
 - `Money`
 - `Wallet`
@@ -44,341 +43,166 @@ Contém as regras e conceitos principais do sistema:
 - `InboxMessage`
 - `OutboxMessage`
 
+O domínio não depende diretamente de NestJS, PostgreSQL ou SQS.
+
 ### Application
 
-Contém os casos de uso e a orquestração das operações:
+Contém os casos de uso e serviços responsáveis pela orquestração das operações:
 
-- transações financeiras;
+- processamento financeiro;
 - idempotência;
-- concorrência;
+- controle de concorrência;
 - Inbox;
 - Outbox;
 - workers.
 
 ### Infrastructure
 
-Contém as implementações relacionadas a recursos externos:
+Contém as integrações externas:
 
 - PostgreSQL;
 - MikroORM;
 - repositórios;
 - SQS;
-- JWT;
-- observabilidade;
-- workers.
-
-Para uma explicação mais detalhada da arquitetura, consulte [`ARCHITECTURE.md`](./ARCHITECTURE.md).
-
----
-
-# Principais decisões técnicas
-
-## Money e precisão financeira
-
-Valores monetários são representados pelo `Money`, utilizando `Decimal.js`.
-
-Isso evita problemas de precisão causados pelo uso de `number` em operações financeiras.
-
-O `Money` também mantém o valor e a moeda juntos e é tratado como um objeto imutável.
+- LocalStack;
+- autenticação;
+- logging;
+- correlation ID.
 
 ---
 
-## Idempotência
+## Principais decisões técnicas
 
-As transações utilizam uma `idempotencyKey`.
+### Dinheiro
 
-O sistema também armazena um hash do payload.
+Valores monetários não utilizam `number`, `float` ou `double`.
 
-Isso permite diferenciar:
+O projeto utiliza `Decimal.js` através do Value Object `Money`.
 
-- uma repetição legítima da mesma requisição;
-- uma requisição conflitante utilizando a mesma chave com dados diferentes.
+Exemplo:
 
----
+```ts
+Money.from("100.00", "BRL");
+```
 
-## Controle de concorrência
+O `Money` mantém o valor monetário como representação decimal e valida a moeda utilizada nas operações.
 
-As carteiras utilizam **optimistic locking** através de um campo `version`.
-
-Uma atualização só é realizada se a versão lida anteriormente ainda for a versão atual no banco.
-
-Isso evita que duas operações concorrentes sobrescrevam silenciosamente o saldo uma da outra.
+Isso evita problemas de precisão comuns em operações financeiras utilizando números de ponto flutuante.
 
 ---
 
-## Ledger
+### Wallet
 
-Cada movimentação financeira gera uma entrada no ledger.
+Uma `Wallet` possui:
 
-A entrada registra:
+- `walletId`;
+- `playerId`;
+- `currency`;
+- `balance`;
+- `version`.
 
-- transação;
+O saldo não pode assumir valores negativos.
+
+A atualização da carteira utiliza controle de concorrência baseado em versão.
+
+Conceitualmente:
+
+```sql
+UPDATE wallets
+SET
+    balance = ...,
+    version = version + 1
+WHERE id = ...
+  AND version = ...;
+```
+
+Quando ocorre um conflito de versão, a operação pode ser reexecutada através do mecanismo de retry de concorrência.
+
+---
+
+### Ledger
+
+Toda alteração financeira aplicada à carteira gera um registro correspondente no ledger.
+
+O registro mantém informações como:
+
 - carteira;
+- transação;
 - direção;
 - valor;
 - moeda;
 - saldo anterior;
 - saldo posterior.
 
-O ledger funciona como histórico das movimentações financeiras.
+O ledger funciona como histórico da movimentação financeira e não deve ser utilizado como um simples campo mutável de saldo.
 
 ---
 
-## Transactional Outbox
+## Idempotência
 
-A alteração financeira e o registro do evento no Outbox são realizados dentro da mesma transação do banco.
+As operações financeiras utilizam `Idempotency-Key`.
 
-Depois, o `OutboxPublisherWorker` publica os eventos pendentes no SQS.
+A aplicação armazena a chave juntamente com um hash do payload da operação.
 
-Isso evita perder eventos caso o banco seja atualizado mas o SQS esteja temporariamente indisponível.
+Existem três possibilidades:
+
+### Nova operação
+
+A chave ainda não existe e a operação pode ser processada.
+
+### Replay
+
+A chave já existe e o payload é equivalente.
+
+Nesse caso, a operação existente é retornada sem executar novamente o efeito financeiro.
+
+### Conflito
+
+A chave já existe, mas o payload é diferente.
+
+Nesse caso, a requisição é tratada como conflito de idempotência.
+
+A proteção também considera a corrida entre múltiplas requisições tentando criar a mesma chave simultaneamente, utilizando as restrições do banco de dados como garantia final.
 
 ---
 
-## Inbox
+## Concorrência
 
-O consumidor utiliza o padrão Inbox para evitar o processamento duplicado de mensagens.
+O controle de concorrência é baseado no banco de dados e não em locks globais ou estado mantido em memória.
 
-Antes de processar uma mensagem, o sistema verifica se ela já foi processada pelo consumidor.
+O projeto possui um mecanismo de optimistic locking através do campo `version` da carteira.
 
----
+Além disso, conflitos de concorrência são tratados por um mecanismo de retry.
 
-## SQS e Workers
+Isso permite que múltiplas instâncias da aplicação concorram pela mesma carteira sem depender da ordem de execução dos processos.
 
-O processamento assíncrono utiliza Amazon SQS.
-
-Durante o desenvolvimento local, o SQS é executado através do LocalStack.
-
-Existem dois principais workers:
+Um dos cenários testados é:
 
 ```text
-OutboxPublisherWorker
-        ↓
-       SQS
-        ↓
-SqsConsumerWorker
-        ↓
-      Inbox
-        ↓
-     Handler
+Saldo inicial: 100
+
+BET 80
+BET 80
 ```
 
----
-
-## Observabilidade
-
-O projeto utiliza:
-
-- logs estruturados;
-- eventos de log;
-- correlation ID;
-- `AsyncLocalStorage`.
-
-O correlation ID permite relacionar logs pertencentes à mesma operação.
-
----
-
-## Autenticação
-
-A autenticação utiliza JWT.
-
-O projeto possui:
+O resultado esperado é:
 
 ```text
-POST /auth/token
+Uma operação processada
+Uma operação rejeitada por saldo insuficiente
+
+Saldo final: 20
 ```
 
-para geração de tokens e um guard responsável pela proteção de endpoints autenticados.
+Também existem testes de concorrência envolvendo múltiplas operações simultâneas e múltiplas instâncias dos componentes de aplicação.
 
 ---
 
-# Requisitos
+## Transações financeiras
 
-Para executar o projeto localmente, é necessário ter instalado:
+O fluxo financeiro principal é centralizado no `FinancialTransactionService`.
 
-- Node.js
-- Bun
-- Docker
-- Docker Compose
-
-O projeto foi desenvolvido utilizando Node.js 24 e Bun.
-
----
-
-# Configuração do ambiente
-
-Crie um arquivo `.env` na raiz do projeto.
-
-Exemplo:
-
-```env
-NODE_ENV=development
-
-PORT=3000
-
-DATABASE_HOST=localhost
-DATABASE_PORT=5432
-DATABASE_NAME=jungle
-DATABASE_USER=jungle
-DATABASE_PASSWORD=jungle
-```
-
-As configurações de AWS/SQS utilizadas pelo ambiente local também devem estar presentes no `.env`, conforme o `docker-compose.yml` e a configuração de mensageria do projeto.
-
----
-
-# Instalação
-
-Instale as dependências:
-
-```bash
-bun install
-```
-
----
-
-# Infraestrutura local
-
-O projeto utiliza Docker para executar os serviços necessários para desenvolvimento.
-
-Suba os containers:
-
-```bash
-docker compose up -d
-```
-
-Os principais serviços utilizados são:
-
-- PostgreSQL
-- LocalStack
-
-Para verificar os containers:
-
-```bash
-docker compose ps
-```
-
----
-
-# Banco de dados
-
-O projeto utiliza PostgreSQL com MikroORM.
-
-As migrations estão localizadas em:
-
-```text
-src/infrastructure/database/migrations/
-```
-
-Para executar as migrations através do MikroORM CLI:
-
-```bash
-bunx mikro-orm migration:up
-```
-
-Para verificar o estado das migrations:
-
-```bash
-bunx mikro-orm migration:list
-```
-
----
-
-# Executando a aplicação
-
-Para iniciar em modo desenvolvimento:
-
-```bash
-bun run start:dev
-```
-
-A aplicação será executada na porta configurada pela variável:
-
-```env
-PORT=3000
-```
-
-Para executar a versão compilada:
-
-```bash
-bun run build
-bun run start:prod
-```
-
----
-
-# Testes
-
-O projeto possui testes unitários, de integração, concorrência e E2E.
-
-## Todos os testes
-
-```bash
-bun run test
-```
-
-## Testes em modo watch
-
-```bash
-bun run test:watch
-```
-
-## Coverage
-
-```bash
-bun run test:cov
-```
-
-## Testes E2E
-
-```bash
-bun run test:e2e
-```
-
----
-
-# Tipos de testes
-
-A suíte de testes cobre diferentes partes do sistema.
-
-### Testes unitários
-
-Validam componentes isoladamente, como:
-
-- `Money`;
-- `Wallet`;
-- `LedgerEntry`;
-- `WagerTransaction`;
-- idempotência;
-- serviços;
-- guards;
-- mappers.
-
-### Testes de integração
-
-Validam a interação entre componentes reais, incluindo:
-
-- PostgreSQL;
-- MikroORM;
-- transações;
-- Inbox;
-- Outbox;
-- SQS.
-
-### Testes de concorrência
-
-Validam situações onde múltiplas operações tentam alterar a mesma carteira simultaneamente.
-
-O objetivo é garantir que o optimistic locking impeça lost updates.
-
-### Testes E2E
-
-Validam o comportamento dos endpoints da aplicação, incluindo o fluxo de autenticação.
-
----
-
-# Fluxo de uma transação financeira
-
-O fluxo principal pode ser resumido assim:
+De forma simplificada:
 
 ```text
 Request
@@ -389,134 +213,171 @@ Idempotência
    ▼
 Wallet
    │
-   ├── Debit
+   ▼
+Money
    │
    ▼
-WagerTransaction
+Regra financeira
    │
-   ▼
-LedgerEntry
-   │
-   ▼
-OutboxMessage
-   │
-   ▼
-Database Commit
-   │
-   ▼
-Outbox Publisher
-   │
-   ▼
-SQS
-   │
-   ▼
-SQS Consumer
-   │
-   ▼
-Inbox
-   │
-   ▼
-Message Handler
+   ├── WagerTransaction
+   ├── Wallet
+   ├── Ledger
+   └── Outbox
+           │
+           ▼
+        Commit
 ```
 
-As alterações financeiras e o registro do Outbox são realizados dentro da mesma transação do banco.
+As alterações relacionadas à operação financeira são executadas dentro da mesma transação do PostgreSQL.
+
+Dessa forma, uma falha durante a operação provoca rollback da transação.
 
 ---
 
-# Tratamento de falhas
+## Outbox
 
-O sistema utiliza diferentes mecanismos para lidar com falhas:
+O projeto utiliza o padrão Transactional Outbox para desacoplar a persistência financeira da publicação de mensagens.
 
-| Situação | Mecanismo |
-|---|---|
-| Requisição duplicada | Idempotência |
-| Mesmo ID com payload diferente | Payload Hash |
-| Concorrência na carteira | Optimistic Locking |
-| Histórico financeiro | Ledger |
-| Falha na publicação | Outbox + retry |
-| Mensagem duplicada | Inbox |
-| Rastreamento de operações | Correlation ID |
-
-A ideia é que cada mecanismo resolva um problema específico de consistência ou recuperação.
-
----
-
-# Estrutura do projeto
+Em vez de depender de:
 
 ```text
-src/
-├── application/
-│   ├── auth/
-│   ├── concurrency/
-│   ├── financial/
-│   ├── idempotency/
-│   ├── inbox/
-│   ├── messaging/
-│   ├── outbox/
-│   └── workers/
-│
-├── domain/
-│   ├── idempotency/
-│   ├── inbox/
-│   ├── ledger/
-│   ├── money/
-│   ├── outbox/
-│   ├── wager-transaction/
-│   └── wallet/
-│
-└── infrastructure/
-    ├── database/
-    ├── messaging/
-    ├── observability/
-    └── workers/
+Banco → SQS
+```
+
+diretamente durante a requisição, a aplicação persiste a mensagem de Outbox junto com a operação financeira.
+
+Posteriormente, um publisher pode buscar as mensagens pendentes e publicá-las no sistema de mensageria.
+
+Isso reduz o risco de uma operação financeira ser confirmada sem que o evento correspondente seja registrado para publicação.
+
+---
+
+## SQS
+
+O projeto possui integração com Amazon SQS e utiliza LocalStack para desenvolvimento e testes locais.
+
+A infraestrutura de mensageria possui:
+
+- publisher;
+- consumer;
+- workers;
+- fila de transações;
+- fila de dead-letter.
+
+O processamento assíncrono é separado do fluxo HTTP através dos workers.
+
+A aplicação também possui componentes de Inbox para controle de mensagens já processadas.
+
+---
+
+## Observabilidade
+
+O projeto possui logging estruturado e suporte a `correlationId`.
+
+Informações de contexto podem ser associadas aos logs, como:
+
+- `correlationId`;
+- `transactionId`;
+- `walletId`;
+- `playerId`;
+- `messageId`.
+
+O objetivo é facilitar o rastreamento de uma operação ao longo dos diferentes componentes da aplicação.
+
+---
+
+## Autenticação
+
+Foi implementada autenticação utilizando JWT como camada complementar da aplicação.
+
+A autenticação não representa o foco principal do desafio, cujo objetivo está concentrado na consistência das operações financeiras, concorrência, idempotência e processamento assíncrono.
+
+Em um ambiente de produção, a autenticação poderia ser integrada a um provedor externo de identidade.
+
+---
+
+# Testes
+
+O projeto possui testes unitários, de integração e de concorrência.
+
+Entre os cenários cobertos estão:
+
+- validação do `Money`;
+- operações monetárias;
+- invariantes de `Wallet`;
+- criação e restauração de `WagerTransaction`;
+- ledger;
+- idempotência;
+- replay de requisições;
+- conflito de idempotência;
+- concorrência sobre uma mesma carteira;
+- operações simultâneas em carteiras diferentes;
+- múltiplas instâncias da aplicação;
+- concorrência da mesma operação;
+- persistência utilizando PostgreSQL.
+
+Um dos principais cenários de concorrência é a disputa por saldo entre operações simultâneas.
+
+Também existe cobertura para a proteção contra duplicação causada por concorrência na criação da chave de idempotência.
+
+---
+
+## Execução
+
+### Instalar dependências
+
+```bash
+bun install
+```
+
+### Subir infraestrutura
+
+```bash
+docker compose up -d
+```
+
+### Executar migrations
+
+```bash
+bunx mikro-orm migration:up
+```
+
+### Executar aplicação
+
+```bash
+bun run start:dev
 ```
 
 ---
 
-# Scripts disponíveis
+## Scripts
 
-| Comando | Descrição |
-|---|---|
-| `bun run build` | Compila o projeto |
-| `bun run start` | Inicia a aplicação |
-| `bun run start:dev` | Inicia em desenvolvimento |
-| `bun run start:prod` | Executa a versão compilada |
-| `bun run lint` | Executa o lint |
-| `bun run test` | Executa os testes |
-| `bun run test:watch` | Testes em modo watch |
-| `bun run test:cov` | Testes com coverage |
-| `bun run test:e2e` | Executa os testes E2E |
+```bash
+bun test
+bun run build
+bun run lint
+```
 
 ---
 
-# Status
+## Variáveis de ambiente
 
-Projeto desenvolvido como parte do desafio técnico para a vaga de Backend Developer Júnior da Jungle Gaming.
+As configurações de banco de dados, SQS e aplicação são definidas através de variáveis de ambiente.
 
-Principais funcionalidades implementadas:
-
-- [x] Money com precisão decimal
-- [x] Wallet
-- [x] WagerTransaction
-- [x] Ledger
-- [x] Idempotência
-- [x] Inbox
-- [x] Outbox
-- [x] SQS
-- [x] Workers
-- [x] Controle de concorrência
-- [x] Testes de integração
-- [x] Testes de concorrência
-- [x] Tratamento de falhas e recuperação
-- [x] Autenticação JWT
-- [x] Observabilidade
-- [x] Correlation ID
-- [x] Documentação da arquitetura
+Utilize o arquivo de exemplo do projeto como referência para configurar o ambiente local.
 
 ---
 
-# Documentação
+## Status
 
-Para entender as decisões arquiteturais e o fluxo completo do sistema:
+O projeto foi desenvolvido priorizando os requisitos de maior impacto para o domínio financeiro:
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+- precisão monetária;
+- consistência transacional;
+- idempotência persistente;
+- concorrência;
+- histórico financeiro;
+- integração assíncrona;
+- testes automatizados.
+
+As decisões arquiteturais foram tomadas buscando manter a garantia final no banco de dados, evitando depender exclusivamente de comportamento do broker ou de estado em memória.

@@ -71,4 +71,9 @@ export class Money {
   equals(other: Money): boolean {
     return this.currency === other.currency && this.value.equals(other.value);
   }
+
+  isGreaterThanOrEqual(other: Money): boolean {
+    this.ensureSameCurrency(other);
+    return this.value.greaterThanOrEqualTo(other.value);
+  }
 }

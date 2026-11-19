@@ -8,9 +8,7 @@ import { WalletEntity } from '../entities/wallet.entity';
 import { WagerTransactionEntity } from '../entities/wager-transaction.entity';
 import { LedgerEntryMapper } from '../mappers/ledger-entry.mapper';
 
-export class MikroOrmLedgerEntryRepository
-  implements LedgerEntryRepository
-{
+export class MikroOrmLedgerEntryRepository implements LedgerEntryRepository {
   constructor(private readonly em: EntityManager) {}
 
   async findById(id: string): Promise<LedgerEntry | null> {
@@ -49,43 +47,47 @@ export class MikroOrmLedgerEntryRepository
     return LedgerEntryMapper.toDomain(entity);
   }
 
-  async save(entry: LedgerEntry): Promise<void> {
-    const wallet = await this.em.findOne(
-      WalletEntity,
-      { id: entry.wallet },
+  async findByWalletId(walletId: string): Promise<LedgerEntry[]> {
+    const entities = await this.em.find(
+      LedgerEntryEntity,
+      {
+        wallet: walletId,
+      },
+      {
+        populate: ['wallet', 'transaction'],
+        orderBy: {
+          createdAt: 'ASC',
+        },
+      },
     );
+
+    return entities.map((entity) => LedgerEntryMapper.toDomain(entity));
+  }
+
+  async save(entry: LedgerEntry): Promise<void> {
+    const wallet = await this.em.findOne(WalletEntity, { id: entry.wallet });
 
     if (!wallet) {
       throw new Error(`Wallet not found: ${entry.wallet}`);
     }
 
-    const transaction = await this.em.findOne(
-      WagerTransactionEntity,
-      { id: entry.transaction },
-    );
+    const transaction = await this.em.findOne(WagerTransactionEntity, {
+      id: entry.transaction,
+    });
 
     if (!transaction) {
-      throw new Error(
-        `WagerTransaction not found: ${entry.transaction}`,
-      );
+      throw new Error(`WagerTransaction not found: ${entry.transaction}`);
     }
 
-    const existingEntity = await this.em.findOne(
-      LedgerEntryEntity,
-      { id: entry.entryId },
-    );
+    const existingEntity = await this.em.findOne(LedgerEntryEntity, {
+      id: entry.entryId,
+    });
 
     if (existingEntity) {
-      throw new Error(
-        `LedgerEntry cannot be updated: ${entry.entryId}`,
-      );
+      throw new Error(`LedgerEntry cannot be updated: ${entry.entryId}`);
     }
 
-    const entity = LedgerEntryMapper.toEntity(
-      entry,
-      wallet,
-      transaction,
-    );
+    const entity = LedgerEntryMapper.toEntity(entry, wallet, transaction);
 
     this.em.persist(entity);
 

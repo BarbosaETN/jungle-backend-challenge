@@ -23,6 +23,9 @@ import type { MessageHandler } from '../../application/workers/message-handler';
 
 import { MESSAGE_CONSUMER } from '../../application/messaging/message-consumer.token';
 import { CorrelationIdService } from '../observability/correlation-id.service';
+import { PendingReferenceWorker } from '../../application/workers/pending-reference.worker';
+import { FinancialTransactionService } from '../../application/financial/financial-transaction.service';
+import { MikroOrmWagerTransactionRepository } from '../database/repositories/mikro-orm-wager-transaction.repository';
 
 @Module({
   imports: [

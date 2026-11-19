@@ -12,4 +12,5 @@ export interface FinancialTransactionRequest {
   amount: string;
   currency: Currency;
   kind: WagerTransactionKind;
+  referenceExternalTransactionId?: string;
 }

@@ -33,7 +33,7 @@ export class WagerTransaction {
     private status: WagerTransactionStatus,
     private readonly referenceExternalTransactionId?: string,
     private readonly referenceTransactionId?: string,
-    private readonly failureCode?: string,
+    private failureCode?: string,
     private processedAt?: Date,
     private readonly createdAt: Date = new Date(),
   ) {}
@@ -54,6 +54,8 @@ export class WagerTransaction {
       input.amount,
       input.kind,
       'PENDING',
+      input.referenceExternalTransactionId,
+      input.referenceTransactionId,
     );
   }
 
@@ -130,6 +132,25 @@ export class WagerTransaction {
         `Invalid WagerTransaction kind: ${input.kind}`,
       );
     }
+  }
+
+  markPendingReference(): void {
+    this.status = 'PENDING_REFERENCE';
+  }
+
+  markPending(): void {
+    this.status = 'PENDING';
+  }
+
+  markRejected(failureCode: string): void {
+    if (!failureCode.trim()) {
+      throw new WagerTransactionError(
+        'WagerTransaction failureCode cannot be empty',
+      );
+    }
+
+    this.status = 'REJECTED';
+    this.failureCode = failureCode;
   }
 
   get transactionId(): string {

@@ -1,59 +1,36 @@
-# Arquitetura
+# Architecture
 
-## 1. Visão geral
+## 1. Overview
 
-Este projeto é um backend para processamento de transações financeiras em um ambiente de jogos.
+O projeto é um backend para processamento de transações financeiras em um ambiente de jogos.
 
-A arquitetura foi pensada principalmente para garantir:
+A arquitetura prioriza:
 
 - consistência financeira;
-- precisão nos valores monetários;
+- precisão monetária;
 - idempotência;
-- controle de concorrência;
+- concorrência;
 - histórico financeiro;
 - processamento assíncrono;
-- recuperação de falhas;
-- observabilidade.
+- recuperação de conflitos;
+- separação de responsabilidades.
 
-O projeto utiliza:
+Stack principal:
 
-- **NestJS**
-- **PostgreSQL**
-- **MikroORM**
-- **Amazon SQS**
-- **LocalStack** para desenvolvimento local
-- **JWT** para autenticação
-- **Decimal.js** para valores monetários
-
-A estrutura principal é:
-
-```text
-FinancialTransactionService
-        │
-        ├── Idempotência
-        ├── Wallet
-        ├── WagerTransaction
-        ├── Ledger
-        └── Outbox
-                │
-                ▼
-        Outbox Publisher
-                │
-                ▼
-               SQS
-                │
-                ▼
-        SQS Consumer
-                │
-                ├── Inbox
-                └── Handler
-```
+- NestJS;
+- TypeScript;
+- PostgreSQL;
+- MikroORM;
+- Decimal.js;
+- Amazon SQS;
+- LocalStack;
+- Docker.
 
 ---
 
-# 2. Organização do projeto
+# 2. Organização
 
-O projeto é dividido em três camadas principais:
+A aplicação é organizada em três áreas principais:
 
 ```text
 src/
@@ -62,397 +39,263 @@ src/
 └── infrastructure/
 ```
 
-## Domain
+## 2.1 Domain
 
-Contém as regras e entidades principais do sistema.
+O domínio contém as regras centrais do sistema.
 
-Exemplos:
+Principais objetos:
 
-- `Money`
-- `Wallet`
-- `WagerTransaction`
-- `LedgerEntry`
-- `InboxMessage`
-- `OutboxMessage`
+```text
+Money
+Wallet
+WagerTransaction
+LedgerEntry
+InboxMessage
+OutboxMessage
+```
 
-O domínio não depende de banco de dados, SQS ou NestJS.
-
----
-
-## Application
-
-Contém os casos de uso e a orquestração das operações.
-
-Exemplos:
-
-- `FinancialTransactionService`
-- `IdempotencyService`
-- `InboxService`
-- `OutboxService`
-- `WalletConcurrencyService`
-- workers
-
-É nessa camada que os componentes do domínio são combinados para executar as operações do sistema.
+Os objetos de domínio possuem construtores controlados e métodos de criação/restauração, evitando que estados inválidos sejam criados diretamente.
 
 ---
 
-## Infrastructure
+## 2.2 Application
 
-Contém as implementações relacionadas ao ambiente externo.
+A camada de aplicação coordena os casos de uso.
 
-Exemplos:
+Entre os principais componentes:
 
-- PostgreSQL;
-- MikroORM;
-- repositórios;
-- SQS;
-- workers;
-- JWT;
-- logs;
-- correlation ID.
+```text
+FinancialTransactionService
+IdempotencyService
+WalletConcurrencyService
+WalletConcurrencyRetryService
+InboxService
+OutboxService
+Workers
+```
+
+O `FinancialTransactionService` concentra o fluxo principal de processamento financeiro.
 
 ---
 
-# 3. Fluxo de uma transação financeira
+## 2.3 Infrastructure
 
-O principal fluxo do sistema acontece no `FinancialTransactionService`.
+A infraestrutura implementa as integrações externas:
 
-A operação é executada dentro de uma transação do banco.
+```text
+PostgreSQL
+MikroORM
+Repositories
+SQS
+LocalStack
+JWT
+Logging
+Correlation ID
+```
 
-## 3.1 Verificação de idempotência
+O objetivo é manter essas preocupações separadas das regras de negócio.
 
-Primeiro verificamos a `idempotencyKey`.
+---
 
-Existem três possibilidades:
+# 3. Financial Transaction Flow
+
+O processamento financeiro é realizado pelo `FinancialTransactionService`.
+
+De forma simplificada:
+
+```text
+HTTP / Worker
+      │
+      ▼
+FinancialTransactionService
+      │
+      ├── Idempotency
+      │
+      ├── Wallet
+      │
+      ├── Money
+      │
+      ├── WagerTransaction
+      │
+      ├── Ledger
+      │
+      └── Outbox
+              │
+              ▼
+             SQS
+```
+
+A operação financeira é executada dentro de uma transação do PostgreSQL.
+
+---
+
+## 3.1 Idempotency
+
+Antes de aplicar o efeito financeiro, a aplicação verifica a chave de idempotência.
+
+O serviço possui três resultados possíveis:
 
 ### NEW
 
 A chave ainda não existe.
 
-A transação pode continuar.
+A operação pode continuar.
 
 ### REPLAY
 
-A mesma chave já foi utilizada com o mesmo payload.
+A chave já existe e o hash do payload corresponde ao payload recebido.
 
-Nesse caso, retornamos a transação existente e não fazemos um novo débito.
+A transação existente é retornada sem executar novamente o efeito financeiro.
 
 ### CONFLICT
 
 A chave já existe, mas o payload é diferente.
 
-Nesse caso, a requisição é rejeitada.
+A operação é tratada como conflito de idempotência.
 
-Isso evita que uma mesma chave represente duas operações diferentes.
+A garantia final da criação da chave é realizada pelo banco de dados.
 
----
+Isso é importante porque duas requisições podem verificar a ausência da mesma chave simultaneamente.
 
-## 3.2 Busca da carteira
-
-Depois buscamos a `Wallet`.
-
-Se ela não existir, a operação falha.
+Nesse cenário, a restrição de unicidade do banco impede a criação duplicada e o serviço recupera a operação já persistida.
 
 ---
 
-## 3.3 Criação do Money
-
-O valor recebido na requisição é convertido para o objeto `Money`.
-
-Por exemplo:
-
-```text
-amount = "10.50"
-currency = "BRL"
-```
-
-vira:
-
-```text
-Money(10.50 BRL)
-```
-
-O `Money` utiliza `Decimal.js`, evitando problemas de precisão com `number`.
-
----
-
-## 3.4 Débito da carteira
-
-Antes do débito guardamos o saldo atual:
-
-```text
-balanceBefore
-```
-
-Depois:
-
-```text
-wallet.debit(amount)
-```
-
-E guardamos o novo saldo:
-
-```text
-balanceAfter
-```
-
-Assim conseguimos registrar exatamente quanto foi alterado.
-
----
-
-## 3.5 Criação da WagerTransaction
-
-Criamos uma `WagerTransaction` com os dados da operação.
-
-Ela guarda informações como:
-
-- provider;
-- external transaction ID;
-- idempotency key;
-- payload hash;
-- wallet;
-- player;
-- round;
-- game;
-- amount;
-- currency;
-- kind;
-- status.
-
----
-
-## 3.6 Criação do Ledger
-
-Criamos uma `LedgerEntry` para registrar a movimentação financeira.
-
-Ela guarda:
-
-```text
-balanceBefore
-amount
-balanceAfter
-```
-
-Por exemplo:
-
-```text
-Saldo antes: 100
-Débito:       30
-Saldo depois: 70
-```
-
-O ledger funciona como o histórico financeiro da carteira.
-
----
-
-## 3.7 Salvamento da Wallet
-
-A carteira utiliza **optimistic locking** através do campo `version`.
-
-O update é feito conceitualmente assim:
-
-```sql
-UPDATE wallets
-SET balance = new_balance,
-    version = version + 1
-WHERE id = wallet_id
-  AND version = current_version;
-```
-
-Se outra transação tiver alterado a carteira antes, a versão não será mais a esperada.
-
-Nesse caso, o update não afeta nenhuma linha e o sistema identifica uma condição de concorrência.
-
----
-
-## 3.8 Salvamento da transação e do ledger
-
-Depois salvamos:
-
-```text
-WagerTransaction
-LedgerEntry
-```
-
-Essas operações fazem parte da mesma transação do banco.
-
----
-
-## 3.9 Criação do Outbox
-
-Por último criamos uma `OutboxMessage`.
-
-Ela representa um evento que deverá ser enviado para o SQS.
-
-Exemplo:
-
-```json
-{
-  "transactionId": "...",
-  "walletId": "...",
-  "playerId": "...",
-  "amount": "10.00",
-  "currency": "BRL"
-}
-```
-
-O importante é que o Outbox também é salvo dentro da mesma transação do banco.
-
----
-
-## 3.10 Commit
-
-Se tudo funcionar:
-
-```text
-Wallet
-WagerTransaction
-LedgerEntry
-OutboxMessage
-```
-
-são confirmados juntos.
-
-Se alguma etapa falhar, a transação é revertida.
-
-Assim evitamos situações como:
-
-```text
-Wallet atualizada
-Ledger não criado
-```
-
-ou:
-
-```text
-Transação criada
-Outbox não criado
-```
-
----
-
-# 4. Money
+# 4. Money Value Object
 
 Valores financeiros são representados pelo `Money`.
 
-Ele combina:
-
-```text
-amount
-currency
-```
-
-e utiliza `Decimal.js` para realizar operações matemáticas.
-
-Isso evita problemas comuns de precisão com `number` em JavaScript.
-
-Além disso, o `Money` é imutável.
-
-Em vez de alterar o valor original, as operações retornam um novo `Money`.
-
-Também não permitimos operações inválidas entre moedas diferentes.
-
-Por exemplo:
-
-```text
-10 BRL + 5 BRL
-```
-
-é válido.
-
-Enquanto:
-
-```text
-10 BRL + 5 USD
-```
-
-não deve ser permitido.
-
----
-
-# 5. Wallet e concorrência
-
-A `Wallet` possui um campo `version`.
-
-Por exemplo:
-
-```text
-balance = 100
-version = 5
-```
-
-Duas requisições podem ler esses mesmos valores ao mesmo tempo.
-
-```text
-Transação A → version 5
-Transação B → version 5
-```
-
-A primeira consegue atualizar:
-
-```text
-version 5 → 6
-```
-
-Quando a segunda tenta atualizar usando:
-
-```text
-WHERE version = 5
-```
-
-o banco não encontra mais essa versão.
-
-Isso gera um conflito de concorrência.
-
-Dessa forma, uma transação não sobrescreve silenciosamente o resultado da outra.
-
----
-
-# 6. Idempotência
-
-Idempotência evita que a mesma operação financeira seja executada mais de uma vez.
-
 Exemplo:
 
-```text
-idempotencyKey = abc-123
+```ts
+Money.from("100.00", "BRL");
 ```
 
-A primeira requisição é processada.
+O `Money` utiliza `Decimal.js` para realizar operações aritméticas.
 
-Se a mesma requisição chegar novamente, o sistema identifica que ela já foi processada e retorna o resultado existente.
+A aplicação evita `number`, `float` e `double` para representar valores monetários.
 
-O saldo não é alterado novamente.
+O objeto também valida:
+
+- representação decimal;
+- moeda;
+- valores inválidos;
+- operações entre moedas diferentes.
+
+Exemplo válido:
+
+```text
+10.00 BRL + 5.00 BRL
+```
+
+Exemplo inválido:
+
+```text
+10.00 BRL + 5.00 USD
+```
 
 ---
 
-## Payload Hash
+# 5. Wallet
 
-Também armazenamos um hash do payload.
+A `Wallet` representa o saldo materializado de um jogador para determinada moeda.
 
-Isso permite diferenciar:
-
-```text
-mesma key + mesmo payload
-```
-
-de:
+Ela possui, entre outros dados:
 
 ```text
-mesma key + payload diferente
+walletId
+playerId
+currency
+balance
+version
 ```
 
-O primeiro caso é um replay.
-
-O segundo é um conflito.
+O banco possui restrições para preservar invariantes importantes, incluindo unicidade da carteira por jogador/moeda e impossibilidade de saldo negativo.
 
 ---
 
-# 7. Ledger
+# 6. Concurrency Control
 
-O `LedgerEntry` representa uma movimentação financeira.
+A aplicação utiliza optimistic locking através do campo `version`.
 
-Ele registra:
+Um update conceitualmente segue:
+
+```sql
+UPDATE wallets
+SET
+    balance = :newBalance,
+    version = version + 1
+WHERE id = :walletId
+  AND version = :expectedVersion;
+```
+
+Se outra transação alterar a carteira primeiro, a versão esperada deixa de ser válida.
+
+Nesse caso ocorre um conflito de concorrência.
+
+O projeto possui um serviço de retry específico para esses conflitos:
+
+```text
+FinancialTransactionService
+        │
+        ▼
+WalletConcurrencyRetryService
+        │
+        ├── tentativa
+        │
+        ├── conflito?
+        │
+        └── retry
+```
+
+Isso evita o padrão perigoso de:
+
+```text
+read balance
+calculate balance
+write balance
+```
+
+sem nenhuma proteção contra alterações concorrentes.
+
+---
+
+# 7. WagerTransaction
+
+A `WagerTransaction` representa a operação financeira recebida.
+
+Ela mantém informações como:
+
+```text
+providerId
+externalTransactionId
+idempotencyKey
+payloadHash
+walletId
+playerId
+roundId
+gameId
+amount
+kind
+status
+```
+
+Os estados e tipos de transação são representados por tipos explícitos no domínio.
+
+A criação e restauração da entidade são realizadas através de métodos controlados:
+
+```ts
+WagerTransaction.create(...)
+WagerTransaction.restore(...)
+```
+
+---
+
+# 8. Ledger
+
+O `LedgerEntry` representa o histórico da alteração financeira.
+
+Um registro contém informações como:
 
 ```text
 transactionId
@@ -464,405 +307,256 @@ balanceBefore
 balanceAfter
 ```
 
-O ledger é tratado como histórico e não deve ser alterado depois de criado.
-
-Por exemplo:
+Exemplo:
 
 ```text
-100 → 70
-DEBIT 30
+balanceBefore: 100.00
+direction:     DEBIT
+amount:        30.00
+balanceAfter:  70.00
 ```
 
-Depois:
+O saldo materializado da carteira e o histórico financeiro são mantidos como conceitos distintos.
 
-```text
-70 → 90
-CREDIT 20
-```
-
-O histórico continua preservado.
-
-Isso permite analisar as movimentações independentemente do saldo atual da carteira.
+O ledger é tratado como histórico da movimentação e não como um registro que deve ser sobrescrito para representar o saldo atual.
 
 ---
 
-# 8. Outbox
+# 9. Database Transaction
 
-O Outbox resolve um problema comum entre banco de dados e mensageria.
+A operação financeira agrupa as alterações relacionadas dentro da mesma transação do PostgreSQL.
 
-Sem Outbox, poderíamos ter:
+Conceitualmente:
 
 ```text
-1. Salvar transação no banco
-2. Enviar mensagem para SQS
+BEGIN
+  │
+  ├── idempotency check
+  ├── wallet update
+  ├── wager transaction
+  ├── ledger entry
+  └── outbox message
+  │
+COMMIT
 ```
 
-Se o banco funcionar e o SQS falhar, ficamos com uma transação salva mas sem o evento.
+Caso uma etapa falhe, a transação é revertida.
 
-Com o Outbox:
+Isso evita estados intermediários como:
 
 ```text
-Transação do banco
-       │
-       ├── Wallet
-       ├── WagerTransaction
-       ├── Ledger
-       └── Outbox
+Wallet atualizada
+Ledger não persistido
 ```
 
-Tudo é salvo junto.
-
-Depois, outro processo publica o Outbox no SQS.
-
-Se o SQS estiver indisponível, a mensagem continua salva no banco e poderá ser enviada novamente.
-
----
-
-# 9. Outbox Publisher
-
-O `OutboxPublisherWorker` procura mensagens pendentes.
-
-Para cada mensagem:
-
-1. publica no SQS;
-2. marca como publicada se funcionar;
-3. registra uma tentativa se falhar;
-4. agenda uma nova tentativa.
-
-Fluxo:
+ou:
 
 ```text
-Outbox
-   ↓
-Publisher Worker
-   ↓
-  SQS
+WagerTransaction persistida
+Outbox não persistido
 ```
 
 ---
 
-# 10. SQS Consumer
+# 10. Transactional Outbox
 
-O `SqsConsumerWorker` recebe mensagens do SQS.
+O projeto utiliza o padrão Transactional Outbox.
 
-O fluxo é:
+A ideia é persistir o evento junto com a operação financeira:
 
 ```text
-SQS
- ↓
+PostgreSQL Transaction
+        │
+        ├── Wallet
+        ├── WagerTransaction
+        ├── LedgerEntry
+        └── OutboxMessage
+```
+
+Somente após o commit a mensagem pode ser publicada para o sistema de mensageria.
+
+O publisher é responsável por buscar mensagens pendentes e realizar a publicação.
+
+Essa abordagem reduz o risco de inconsistência entre o banco de dados e o broker.
+
+---
+
+# 11. Messaging
+
+A infraestrutura de mensageria utiliza Amazon SQS, com LocalStack no ambiente local.
+
+O projeto possui componentes separados para:
+
+```text
+Publisher
 Consumer
- ↓
-Inbox
- ↓
-Handler
- ↓
-Delete da mensagem
-```
-
-Antes de processar a mensagem, calculamos seu hash e verificamos o Inbox.
-
-Se ela ainda não foi processada, o handler é executado.
-
-Depois do processamento, a mensagem é marcada como processada e removida do SQS.
-
----
-
-# 11. Inbox
-
-O Inbox existe porque mensagens podem ser entregues mais de uma vez.
-
-Uma mensagem possui:
-
-```text
-messageId
-consumerName
-```
-
-O sistema usa essas informações para identificar se aquele consumidor já processou a mensagem.
-
-Exemplo:
-
-```text
-Mensagem 123
-     ↓
-wallet-consumer
-     ↓
-já processada?
-```
-
-Se já tiver sido processada, não executamos o handler novamente.
-
-Isso torna o processamento do consumidor idempotente.
-
----
-
-# 12. Falhas e recuperação
-
-O sistema considera que falhas podem acontecer.
-
-Alguns exemplos:
-
-- erro no banco;
-- erro no SQS;
-- worker sendo interrompido;
-- mensagem duplicada;
-- concorrência;
-- indisponibilidade temporária de serviços.
-
-Cada mecanismo resolve um tipo de problema.
-
-```text
-Requisição duplicada
-        ↓
-   Idempotência
-
-Mensagem duplicada
-        ↓
-       Inbox
-
-Concorrência
-        ↓
-Optimistic Locking
-
-Falha no envio
-        ↓
-      Outbox
-```
-
----
-
-## Falha no Outbox
-
-Se o envio para o SQS falhar:
-
-```text
-Outbox
-  ↓
-Falha no envio
-  ↓
-Nova tentativa
-```
-
-A mensagem não é simplesmente perdida.
-
----
-
-## Falha no Consumer
-
-Se o handler falhar, a mensagem não é marcada como processada.
-
-Assim ela pode ser entregue novamente pelo SQS.
-
----
-
-## Falha de concorrência
-
-Se a versão da carteira mudar antes do update, ocorre um conflito.
-
-O sistema pode então tentar novamente utilizando a versão mais atual.
-
----
-
-# 13. Autenticação
-
-O projeto possui uma autenticação simples utilizando JWT.
-
-O fluxo é:
-
-```text
-POST /auth/token
-       ↓
-      JWT
-       ↓
-Authorization: Bearer <token>
-       ↓
-JwtAuthGuard
-       ↓
-Endpoint protegido
-```
-
-O token contém o identificador do usuário no campo `sub`.
-
-O `JwtAuthGuard` valida o token antes de liberar uma rota protegida.
-
-Tokens inválidos ou expirados resultam em `401 Unauthorized`.
-
----
-
-# 14. Observabilidade
-
-O projeto possui logs estruturados e `Correlation ID`.
-
-O `CorrelationIdMiddleware` verifica se a requisição possui:
-
-```text
-X-Correlation-ID
-```
-
-Se não possuir, um novo UUID é gerado.
-
-Esse ID é armazenado através do `AsyncLocalStorage`.
-
-O `LoggerService` pode então incluir o mesmo ID nos logs.
-
-Exemplo:
-
-```json
-{
-  "event": "transaction.created",
-  "correlationId": "abc-123",
-  "transactionId": "..."
-}
-```
-
-Alguns eventos utilizados:
-
-```text
-transaction.created
-transaction.processed
-transaction.failed
-outbox.published
-outbox.publish_failed
-sqs.message_received
-sqs.message_processed
-sqs.message_failed
-```
-
-Isso facilita acompanhar uma operação através dos diferentes componentes do sistema.
-
----
-
-# 15. Garantias de consistência
-
-Cada mecanismo resolve um problema específico:
-
-| Problema | Solução |
-|---|---|
-| Precisão financeira | `Money` + `Decimal.js` |
-| Requisições duplicadas | Idempotência |
-| Mesma key com payload diferente | Payload Hash |
-| Concorrência na Wallet | Optimistic Locking |
-| Histórico financeiro | Ledger |
-| Banco + mensageria | Outbox |
-| Mensagens duplicadas | Inbox |
-| Falha no envio | Retry do Outbox |
-| Rastreamento | Correlation ID |
-| Acesso protegido | JWT |
-
-A ideia principal é que nenhum desses mecanismos trabalha sozinho.
-
-Eles se complementam.
-
----
-
-# 16. Trade-offs
-
-Essa arquitetura é mais complexa que uma API CRUD tradicional.
-
-Em uma aplicação simples poderíamos ter:
-
-```text
-Controller
-   ↓
-Service
-   ↓
-Database
-```
-
-Aqui temos mais componentes:
-
-```text
-Domain
-Application
-Infrastructure
-Database Transactions
-Idempotency
-Ledger
-Outbox
-SQS
-Inbox
 Workers
-Concurrency Control
-Authentication
-Observability
+SQS Client
 ```
 
-Essa complexidade existe porque uma operação financeira precisa ser mais cuidadosa com consistência e recuperação de falhas.
+A comunicação utiliza mensagens estruturadas contendo informações da operação.
+
+O processamento assíncrono é mantido separado do processamento HTTP.
 
 ---
 
-## Optimistic Locking
+# 12. Inbox
 
-Foi escolhido em vez de manter locks longos no banco.
+O domínio possui o conceito de `InboxMessage` e um serviço específico para controle de mensagens recebidas.
 
-Vantagem:
+O objetivo é permitir que uma mensagem identificada pelo consumidor seja reconhecida e não gere efeitos duplicados quando houver redelivery.
 
-- simples;
-- não mantém locks por muito tempo;
-- detecta conflitos explicitamente.
-
-Desvantagem:
-
-- transações que entram em conflito precisam ser tratadas ou repetidas.
+A Inbox faz parte da estratégia de processamento idempotente de mensagens.
 
 ---
 
-## Outbox
+# 13. Observability
 
-Adiciona uma tabela e um worker, mas evita perder eventos quando o banco funciona e o SQS falha.
+A aplicação utiliza logging estruturado e `correlationId`.
 
----
+O correlation ID permite acompanhar uma operação através das diferentes camadas da aplicação.
 
-## Inbox
-
-Adiciona persistência para controlar mensagens já processadas, mas permite tratar entregas duplicadas de forma segura.
-
----
-
-# 17. Resumo da arquitetura
-
-O fluxo principal pode ser resumido assim:
+Contextos relevantes incluem:
 
 ```text
-                    ┌──────────────┐
-                    │    Cliente   │
-                    └──────┬───────┘
-                           │
-                           ▼
-                ┌─────────────────────┐
-                │ FinancialTransaction│
-                │      Service        │
-                └──────────┬──────────┘
-                           │
-              ┌────────────┼────────────┐
-              │            │            │
-              ▼            ▼            ▼
-        Idempotência     Wallet     WagerTransaction
-                           │
-                    Optimistic Lock
-                           │
-                           ▼
-                      Ledger
-                           │
-                           ▼
-                        Outbox
-                           │
-                     Commit no DB
-                           │
-                           ▼
-                 Outbox Publisher
-                           │
-                           ▼
-                          SQS
-                           │
-                           ▼
-                  SQS Consumer
-                           │
-                    ┌──────┴──────┐
-                    ▼             ▼
-                  Inbox         Handler
+correlationId
+transactionId
+walletId
+playerId
+messageId
 ```
 
-A ideia central da arquitetura é:
+O projeto evita registrar payloads financeiros completos desnecessariamente.
 
-> A operação financeira deve permanecer correta mesmo quando existem requisições duplicadas, concorrência entre transações, mensagens duplicadas ou falhas temporárias nos serviços externos.
+---
+
+# 14. Authentication
+
+Foi implementada uma camada de autenticação JWT.
+
+A autenticação é tratada como uma preocupação complementar ao fluxo financeiro principal.
+
+Em uma implantação de produção, essa camada pode ser substituída ou integrada a um provedor externo de identidade.
+
+---
+
+# 15. Testing Strategy
+
+A estratégia de testes possui três níveis principais.
+
+## Unit Tests
+
+Testam regras isoladas do domínio e aplicação.
+
+Exemplos:
+
+- `Money`;
+- `Wallet`;
+- `WagerTransaction`;
+- `Ledger`;
+- idempotência;
+- concorrência.
+
+## Integration Tests
+
+Utilizam PostgreSQL real para validar a interação entre aplicação e banco.
+
+Exemplos:
+
+- persistência;
+- constraints;
+- transações;
+- idempotência;
+- concorrência;
+- múltiplas instâncias dos componentes de aplicação.
+
+## Concurrency Tests
+
+Existem cenários de concorrência real utilizando operações paralelas contra PostgreSQL.
+
+Exemplo:
+
+```text
+Initial balance = 100
+
+BET 80
+BET 80
+```
+
+O sistema deve garantir:
+
+```text
+1 operação aplicada
+1 operação rejeitada
+final balance = 20
+```
+
+Outro cenário utiliza múltiplas requisições simultâneas com a mesma chave de idempotência.
+
+O resultado esperado é uma única operação financeira efetiva, enquanto as demais requisições recebem o resultado da operação já existente.
+
+---
+
+# 16. Main Architectural Guarantees
+
+As principais garantias buscadas pela arquitetura são:
+
+### Precisão
+
+Valores financeiros não dependem de `number`/floating point.
+
+### Idempotência
+
+A mesma operação não deve produzir múltiplos efeitos financeiros.
+
+### Concorrência
+
+A atualização da carteira possui controle de versão e retry.
+
+### Atomicidade
+
+As alterações financeiras relacionadas são persistidas na mesma transação do banco.
+
+### Auditoria
+
+Movimentações financeiras possuem registros de ledger.
+
+### Assíncrono
+
+A publicação de eventos é desacoplada através do Outbox e da infraestrutura de mensageria.
+
+### Multi-instance
+
+As garantias de consistência não dependem de memória local ou de um único processo da aplicação.
+
+---
+
+# 17. Trade-offs
+
+Algumas decisões foram tomadas priorizando simplicidade e segurança do domínio financeiro.
+
+### Optimistic Locking
+
+Foi escolhido para evitar locks globais e permitir concorrência entre carteiras diferentes.
+
+### Idempotência no banco
+
+A chave de idempotência é persistida e protegida por constraint, evitando depender de memória local.
+
+### Transactional Outbox
+
+Adiciona uma etapa de persistência, mas reduz o risco de inconsistência entre banco e mensageria.
+
+### Decimal.js
+
+Adiciona uma dependência específica para valores financeiros, mas evita os problemas de precisão associados a números de ponto flutuante.
+
+---
+
+# 18. Conclusion
+
+A arquitetura foi construída em torno de uma premissa principal:
+
+> O banco de dados é a autoridade final para consistência financeira.
+
+Por isso, as principais garantias de idempotência, concorrência, atomicidade e integridade são sustentadas por transações e constraints do PostgreSQL, enquanto componentes como SQS, workers e Outbox são utilizados para processamento assíncrono e integração entre componentes.

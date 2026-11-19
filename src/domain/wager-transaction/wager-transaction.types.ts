@@ -13,6 +13,8 @@ export interface CreateWagerTransactionInput {
   gameId: string;
   amount: Money;
   kind: WagerTransactionKind;
+  referenceExternalTransactionId?: string;
+  referenceTransactionId?: string;
 }
 
 export interface RestoreWagerTransactionInput

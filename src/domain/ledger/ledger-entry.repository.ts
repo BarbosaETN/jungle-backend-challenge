@@ -7,5 +7,7 @@ export interface LedgerEntryRepository {
     transactionId: string,
   ): Promise<LedgerEntry | null>;
 
+  findByWalletId(walletId: string): Promise<LedgerEntry[]>;
+
   save(entry: LedgerEntry): Promise<void>;
 }

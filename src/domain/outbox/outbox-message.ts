@@ -1,3 +1,5 @@
+import { IntegrationEvent } from '../events/integration-event';
+
 export class OutboxMessageError extends Error {
   constructor(message: string) {
     super(message);
@@ -17,6 +19,20 @@ export class OutboxMessage {
     private publishedAt?: Date,
   ) {}
 
+  static enqueue(event: IntegrationEvent<unknown>): OutboxMessage {
+    return new OutboxMessage(
+      event.eventId,
+      event.aggregateId,
+      event.eventType,
+      event.toJSON(),
+      event.occurredAt,
+      0,
+    );
+  }
+
+  /**
+   * Mantido temporariamente para compatibilidade com o código/testes atuais.
+   */
   static create(
     id: string,
     aggregateId: string,
