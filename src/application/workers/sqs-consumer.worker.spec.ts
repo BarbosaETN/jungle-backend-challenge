@@ -1,3 +1,4 @@
+import { CorrelationIdService } from '../../infrastructure/observability/correlation-id.service';
 import { InboxService } from '../inbox/inbox.service';
 import {
   MessageConsumer,
@@ -22,8 +23,6 @@ describe('SqsConsumerWorker', () => {
       delete: deleteMessage,
     } as unknown as MessageConsumer;
 
-    const process = jest.fn().mockResolvedValue('NEW');
-
     const inboxService = {
       process: jest.fn().mockResolvedValue('NEW'),
       markAsProcessed: jest.fn().mockResolvedValue(undefined),
@@ -41,6 +40,7 @@ describe('SqsConsumerWorker', () => {
       messageHandler,
       'http://queue.test',
       'wallet-consumer',
+      new CorrelationIdService(),
     );
 
     await worker.run();
@@ -94,6 +94,7 @@ describe('SqsConsumerWorker', () => {
       messageHandler,
       'http://queue.test',
       'wallet-consumer',
+      new CorrelationIdService(),
     );
 
     await worker.run();
@@ -135,6 +136,7 @@ describe('SqsConsumerWorker', () => {
       messageHandler,
       'http://queue.test',
       'wallet-consumer',
+      new CorrelationIdService(),
     );
 
     await expect(worker.run()).rejects.toThrow('Processing failed');
@@ -176,6 +178,7 @@ describe('SqsConsumerWorker', () => {
       messageHandler,
       'http://queue.test',
       'wallet-consumer',
+      new CorrelationIdService(),
     );
 
     // Primeira entrega: processamento falha.
@@ -241,6 +244,7 @@ describe('SqsConsumerWorker', () => {
       messageHandler,
       'http://queue.test',
       'wallet-consumer',
+      new CorrelationIdService(),
     );
 
     await worker.run(3);

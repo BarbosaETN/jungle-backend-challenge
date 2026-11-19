@@ -1,4 +1,4 @@
-import { Inject } from '@nestjs/common';
+import { Inject, Optional } from '@nestjs/common';
 
 import { MESSAGE_CONSUMER } from '../messaging/message-consumer.token';
 import { InboxService } from '../inbox/inbox.service';
@@ -10,6 +10,9 @@ import type {
 import type { MessageHandler } from './message-handler';
 import { SQS_QUEUE_URL } from '../messaging/sqs-queue-url.token';
 import { SQS_CONSUMER_NAME } from '../messaging/sqs-consumer-name.token';
+import { CorrelationIdService } from '../../infrastructure/observability/correlation-id.service';
+import { LoggerService } from '../../infrastructure/observability/logger.service';
+import { LOG_EVENTS } from '../../infrastructure/observability/log-events';
 
 export class SqsConsumerWorker {
   constructor(
@@ -26,6 +29,11 @@ export class SqsConsumerWorker {
 
     @Inject(SQS_CONSUMER_NAME)
     private readonly consumerName: string,
+
+    private readonly correlationIdService: CorrelationIdService,
+
+    @Optional()
+    private readonly logger?: LoggerService,
   ) {}
 
   async run(maxMessages = 10): Promise<void> {
@@ -40,6 +48,11 @@ export class SqsConsumerWorker {
   }
 
   private async processMessage(message: ReceivedMessage): Promise<void> {
+    this.logger?.info(LOG_EVENTS.SQS_MESSAGE_RECEIVED, {
+      messageId: message.messageId,
+      consumerName: this.consumerName,
+    });
+
     const payloadHash = generatePayloadHash(message.body);
 
     const result = await this.inboxService.process(
@@ -49,15 +62,41 @@ export class SqsConsumerWorker {
     );
 
     if (result === 'NEW') {
-      await this.messageHandler.handle({
-        messageId: message.messageId,
-        body: message.body,
-      });
+      const payload = JSON.parse(message.body) as {
+        correlationId?: string;
+      };
 
-      await this.inboxService.markAsProcessed(
-        message.messageId,
-        this.consumerName,
-      );
+      const correlationId = payload.correlationId ?? message.messageId;
+
+      try {
+        await this.correlationIdService.run(correlationId, async () => {
+          await this.messageHandler.handle({
+            messageId: message.messageId,
+            body: message.body,
+          });
+        });
+
+        await this.inboxService.markAsProcessed(
+          message.messageId,
+          this.consumerName,
+        );
+
+        this.logger?.info(LOG_EVENTS.SQS_MESSAGE_PROCESSED, {
+          messageId: message.messageId,
+          consumerName: this.consumerName,
+        });
+      } catch (error) {
+        this.logger?.error(
+          LOG_EVENTS.SQS_MESSAGE_FAILED,
+          {
+            messageId: message.messageId,
+            consumerName: this.consumerName,
+          },
+          error,
+        );
+
+        throw error;
+      }
     }
 
     await this.messageConsumer.delete(this.queueUrl, message.receiptHandle);

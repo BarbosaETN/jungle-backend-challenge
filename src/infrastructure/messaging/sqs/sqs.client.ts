@@ -39,6 +39,11 @@ export class SqsClient implements MessagePublisher, MessageConsumer {
     queueUrl: string,
     maxMessages: number,
   ): Promise<ReceivedMessage[]> {
+    console.log('SQS RECEIVE:', {
+      queueUrl,
+      maxMessages,
+    });
+
     const response = await this.client.send(
       new ReceiveMessageCommand({
         QueueUrl: queueUrl,

@@ -13,6 +13,16 @@ import { MikroOrmInboxMessageRepository } from '../database/repositories/mikro-o
 import { SQS_CONSUMER_NAME } from '../../application/messaging/sqs-consumer-name.token';
 import { LoggingMessageHandler } from './logging-message-handler';
 import { SqsConsumerWorker } from '../../application/workers/sqs-consumer.worker';
+import { MESSAGE_PUBLISHER } from '../../application/messaging/message-publisher.token';
+import { MessagePublisher } from '../../application/messaging/message-publisher';
+import type {
+  MessageConsumer,
+  ReceivedMessage,
+} from '../../application/messaging/message-consumer';
+import type { MessageHandler } from '../../application/workers/message-handler';
+
+import { MESSAGE_CONSUMER } from '../../application/messaging/message-consumer.token';
+import { CorrelationIdService } from '../observability/correlation-id.service';
 
 @Module({
   imports: [
@@ -43,6 +53,7 @@ import { SqsConsumerWorker } from '../../application/workers/sqs-consumer.worker
         new MikroOrmInboxMessageRepository(em.fork()),
       inject: [EntityManager],
     },
+    CorrelationIdService,
     {
       provide: InboxService,
       useFactory: (repository: MikroOrmInboxMessageRepository) =>
@@ -61,8 +72,42 @@ import { SqsConsumerWorker } from '../../application/workers/sqs-consumer.worker
         new OutboxService(repository),
       inject: [MikroOrmOutboxMessageRepository],
     },
-    OutboxPublisherWorker,
-    SqsConsumerWorker,
+    {
+      provide: OutboxPublisherWorker,
+      useFactory: (
+        outboxService: OutboxService,
+        messagePublisher: MessagePublisher,
+        queueUrl: string,
+      ) => new OutboxPublisherWorker(outboxService, messagePublisher, queueUrl),
+      inject: [OutboxService, MESSAGE_PUBLISHER, SQS_QUEUE_URL],
+    },
+    {
+      provide: SqsConsumerWorker,
+      useFactory: (
+        messageConsumer: MessageConsumer,
+        inboxService: InboxService,
+        messageHandler: MessageHandler,
+        queueUrl: string,
+        consumerName: string,
+        correlationIdService: CorrelationIdService,
+      ) =>
+        new SqsConsumerWorker(
+          messageConsumer,
+          inboxService,
+          messageHandler,
+          queueUrl,
+          consumerName,
+          correlationIdService,
+        ),
+      inject: [
+        MESSAGE_CONSUMER,
+        InboxService,
+        'MESSAGE_HANDLER',
+        SQS_QUEUE_URL,
+        SQS_CONSUMER_NAME,
+        CorrelationIdService,
+      ],
+    },
   ],
   exports: [OutboxPublisherWorker],
 })

@@ -1,9 +1,11 @@
 import { OutboxService } from '../outbox/outbox.service';
 import type { MessagePublisher } from '../messaging/message-publisher';
-import { Inject } from '@nestjs/common';
+import { Inject, Optional } from '@nestjs/common';
 import { SQS_QUEUE_URL } from '../messaging/sqs-queue-url.token';
 
 import { MESSAGE_PUBLISHER } from '../messaging/message-publisher.token';
+import { LoggerService } from '../../infrastructure/observability/logger.service';
+import { LOG_EVENTS } from '../../infrastructure/observability/log-events';
 
 export class OutboxPublisherWorker {
   private running = false;
@@ -16,6 +18,8 @@ export class OutboxPublisherWorker {
 
     @Inject(SQS_QUEUE_URL)
     private readonly queueUrl: string,
+    @Optional()
+    private readonly logger?: LoggerService,
   ) {}
 
   async run(limit = 10): Promise<void> {
@@ -35,10 +39,26 @@ export class OutboxPublisherWorker {
         );
 
         await this.outboxService.markAsPublished(message.messageId);
-      } catch {
+
+        this.logger?.info(LOG_EVENTS.OUTBOX_PUBLISHED, {
+          messageId: message.messageId,
+          aggregateId: message.aggregate,
+          eventType: message.type,
+        });
+      } catch (error) {
         await this.outboxService.registerAttempt(
           message.messageId,
           new Date(Date.now() + 5_000),
+        );
+
+        this.logger?.error(
+          LOG_EVENTS.OUTBOX_PUBLISH_FAILED,
+          {
+            messageId: message.messageId,
+            aggregateId: message.aggregate,
+            eventType: message.type,
+          },
+          error,
         );
       }
     }

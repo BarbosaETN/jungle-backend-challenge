@@ -6,6 +6,9 @@ import { WorkersModule } from './infrastructure/workers/workers.module';
 import { AuthModule } from './application/auth/auth.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { MiddlewareConsumer} from '@nestjs/common';
+import { CorrelationIdMiddleware } from './infrastructure/observability/correlation-id.middleware';
+import { CorrelationIdService } from './infrastructure/observability/correlation-id.service';
 
 @Module({
   imports: [
@@ -17,6 +20,10 @@ import { AppService } from './app.service';
     AuthModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, CorrelationIdService,],
 })
-export class AppModule {}
+export class AppModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+  }
+}

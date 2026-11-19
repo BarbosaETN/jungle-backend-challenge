@@ -10,6 +10,7 @@ import { AppModule } from '../../../src/app.module';
 import { SqsConsumerWorker } from '../../../src/application/workers/sqs-consumer.worker';
 import { InboxMessageEntity } from '../../../src/infrastructure/database/entities/inbox-message.entity';
 import { generatePayloadHash } from '../../../src/application/idempotency/payload-hash';
+import { SQS_QUEUE_URL } from '../../../src/application/messaging/sqs-queue-url.token';
 
 describe('SqsConsumerWorker integration', () => {
   let worker: SqsConsumerWorker;
@@ -24,6 +25,11 @@ describe('SqsConsumerWorker integration', () => {
     }).compile();
 
     worker = moduleRef.get(SqsConsumerWorker);
+
+    const queueUrlProvider = moduleRef.get(SQS_QUEUE_URL);
+
+    console.log('QUEUE PROVIDER:', queueUrlProvider);
+
     em = moduleRef.get(EntityManager).fork();
 
     sqsClient = new SQSClient({

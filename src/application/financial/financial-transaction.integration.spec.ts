@@ -18,9 +18,14 @@ import { FinancialTransactionService } from './financial-transaction.service';
 import { MikroOrmWagerTransactionRepository } from '../../infrastructure/database/repositories/mikro-orm-wager-transaction.repository';
 import { FinancialTransactionRequest } from './financial-transaction.request';
 import { WagerTransaction } from '../../domain/wager-transaction/wager-transaction';
+import { LoggerService } from '../../infrastructure/observability/logger.service';
+
+import { LOG_EVENTS } from '../../infrastructure/observability/log-events';
+import { CorrelationIdService } from '../../infrastructure/observability/correlation-id.service';
 
 describe('FinancialTransaction integration', () => {
   let orm: MikroORM;
+  const correlationIdService = new CorrelationIdService();
 
   beforeAll(async () => {
     orm = await MikroORM.init(mikroOrmConfig);
@@ -55,25 +60,44 @@ describe('FinancialTransaction integration', () => {
 
     const idempotencyService = new IdempotencyService(idempotencyRepository);
 
+    const logger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+    } as unknown as LoggerService;
+
     const financialService = new FinancialTransactionService(
       databaseTransaction,
       idempotencyService,
+      logger,
+      correlationIdService,
     );
 
-    const result = await financialService.create(
-      {
-        providerId: 'provider-1',
-        externalTransactionId: 'external-1',
-        idempotencyKey: 'idempotency-1',
-        playerId: 'player-financial',
+    const request: FinancialTransactionRequest = {
+      providerId: 'provider-1',
+      externalTransactionId: 'external-1',
+      idempotencyKey: 'idempotency-1',
+      playerId: 'player-financial',
+      walletId: wallet.walletId,
+      roundId: 'round-1',
+      gameId: 'game-1',
+      amount: '30.00',
+      currency: 'BRL',
+      kind: 'BET',
+    };
+
+    const payloadHash = 'a'.repeat(64);
+
+    const result = await financialService.create(request, payloadHash);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      LOG_EVENTS.TRANSACTION_CREATED,
+      expect.objectContaining({
+        transactionId: result.transaction.transactionId,
         walletId: wallet.walletId,
-        roundId: 'round-1',
-        gameId: 'game-1',
-        amount: '30.00',
-        currency: 'BRL',
-        kind: 'BET',
-      },
-      'a'.repeat(64),
+        playerId: request.playerId,
+        idempotencyKey: request.idempotencyKey,
+      }),
     );
 
     expect(result.replayed).toBe(false);
@@ -131,9 +155,13 @@ describe('FinancialTransaction integration', () => {
 
     const idempotencyService = new IdempotencyService(idempotencyRepository);
 
+    const logger = new LoggerService();
+
     const financialService = new FinancialTransactionService(
       databaseTransaction,
       idempotencyService,
+      logger,
+      correlationIdService,
     );
 
     const request: FinancialTransactionRequest = {
@@ -163,7 +191,9 @@ describe('FinancialTransaction integration', () => {
 
     const savedTransaction = await verificationEm.findOne(
       WagerTransactionEntity,
-      { idempotencyKey: request.idempotencyKey },
+      {
+        idempotencyKey: request.idempotencyKey,
+      },
     );
 
     const savedLedger = await verificationEm.findOne(LedgerEntryEntity, {
@@ -197,9 +227,13 @@ describe('FinancialTransaction integration', () => {
 
     const idempotencyService = new IdempotencyService(idempotencyRepository);
 
+    const logger = new LoggerService();
+
     const financialService = new FinancialTransactionService(
       databaseTransaction,
       idempotencyService,
+      logger,
+      correlationIdService,
     );
 
     const request: FinancialTransactionRequest = {
@@ -272,9 +306,13 @@ describe('FinancialTransaction integration', () => {
 
     const idempotencyService = new IdempotencyService(idempotencyRepository);
 
+    const logger = new LoggerService();
+
     const financialService = new FinancialTransactionService(
       databaseTransaction,
       idempotencyService,
+      logger,
+      correlationIdService,
     );
 
     const request: FinancialTransactionRequest = {
@@ -370,9 +408,13 @@ describe('FinancialTransaction integration', () => {
 
     const idempotencyService = new IdempotencyService(idempotencyRepository);
 
+    const logger = new LoggerService();
+
     const financialService = new FinancialTransactionService(
       databaseTransaction,
       idempotencyService,
+      logger,
+      correlationIdService,
     );
 
     const request: FinancialTransactionRequest = {
@@ -439,9 +481,13 @@ describe('FinancialTransaction integration', () => {
 
       const idempotencyService = new IdempotencyService(idempotencyRepository);
 
+      const logger = new LoggerService();
+
       return new FinancialTransactionService(
         databaseTransaction,
         idempotencyService,
+        logger,
+        correlationIdService,
       );
     };
 
@@ -479,6 +525,8 @@ describe('FinancialTransaction integration', () => {
       serviceB.create(requestB, 'b'.repeat(64)),
     ]);
 
+    console.log('RESULT A:', resultA);
+    console.log('RESULT B:', resultB);
     expect(resultA.status).toBe('fulfilled');
     expect(resultB.status).toBe('fulfilled');
 

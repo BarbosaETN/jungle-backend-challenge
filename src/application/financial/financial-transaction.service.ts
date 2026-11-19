@@ -8,19 +8,24 @@ import { IdempotencyService } from '../idempotency/idempotency.service';
 import type { FinancialTransactionRequest } from './financial-transaction.request';
 import type { FinancialTransactionResult } from './financial-transaction.result';
 import { OutboxMessage } from '../../domain/outbox/outbox-message';
+import { LoggerService } from '../../infrastructure/observability/logger.service';
+import { LOG_EVENTS } from '../../infrastructure/observability/log-events';
 import { randomUUID } from 'crypto';
+import { CorrelationIdService } from '../../infrastructure/observability/correlation-id.service';
 
 export class FinancialTransactionService {
   constructor(
     private readonly databaseTransaction: DatabaseTransaction,
     private readonly idempotencyService: IdempotencyService,
+    private readonly logger: LoggerService,
+    private readonly correlationIdService: CorrelationIdService,
   ) {}
 
   async create(
     request: FinancialTransactionRequest,
     payloadHash: string,
   ): Promise<FinancialTransactionResult> {
-    return this.databaseTransaction.run(async (context) => {
+    const result = await this.databaseTransaction.run(async (context) => {
       const idempotency = await this.idempotencyService.resolve(
         request.idempotencyKey,
         payloadHash,
@@ -92,6 +97,7 @@ export class FinancialTransactionService {
           kind: transaction.transactionKind,
           amount: transaction.value.amount,
           currency: transaction.value.currencyCode,
+          correlationId: this.correlationIdService.get(),
         },
       );
 
@@ -102,5 +108,14 @@ export class FinancialTransactionService {
         replayed: false,
       };
     });
+
+    this.logger.info(LOG_EVENTS.TRANSACTION_CREATED, {
+      transactionId: result.transaction.transactionId,
+      walletId: request.walletId,
+      playerId: request.playerId,
+      idempotencyKey: request.idempotencyKey,
+    });
+
+    return result;
   }
 }
